@@ -1,8 +1,129 @@
-/*
+.media-tracker {
+	padding: 20px;
+}
 
-This CSS file will be included with your plugin, and
-available in the app when your plugin is enabled.
+.media-tracker__header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	margin-bottom: 16px;
+}
 
-If your plugin does not need CSS, delete this file.
+.media-tracker__actions {
+	display: flex;
+	gap: 8px;
+}
 
-*/
+.media-tracker__filters {
+	display: flex;
+	gap: 12px;
+	margin-bottom: 16px;
+	flex-wrap: wrap;
+}
+
+.media-tracker__filters select {
+	padding: 6px 10px;
+	border-radius: 6px;
+	border: 1px solid var(--background-modifier-border);
+	background: var(--background-primary);
+	color: var(--text-normal);
+}
+
+.media-tracker__list {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+	gap: 14px;
+}
+
+.media-tracker__card {
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 12px;
+	padding: 14px;
+	background: var(--background-primary-alt);
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+	box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+.media-tracker__card-title {
+	display: flex;
+	justify-content: space-between;
+	gap: 10px;
+	font-weight: 600;
+}
+
+.media-tracker__pill {
+	border-radius: 999px;
+	padding: 2px 8px;
+	font-size: 11px;
+	background: var(--background-modifier-accent);
+	color: var(--text-on-accent);
+	text-transform: uppercase;
+	letter-spacing: 0.06em;
+}
+
+.media-tracker__meta {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	font-size: 12px;
+	color: var(--text-muted);
+}
+
+.media-tracker__meta-item {
+	padding: 2px 6px;
+	border-radius: 6px;
+	background: var(--background-modifier-border);
+	color: var(--text-normal);
+}
+
+.media-tracker__links {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+}
+
+.media-tracker__button {
+	border-radius: 8px;
+	border: 1px solid var(--background-modifier-border);
+	background: var(--background-primary);
+	color: var(--text-normal);
+	padding: 6px 10px;
+	cursor: pointer;
+	font-size: 12px;
+}
+
+.media-tracker__button:hover {
+	border-color: var(--interactive-accent);
+}
+
+.media-tracker__button.is-disabled {
+	opacity: 0.5;
+	cursor: not-allowed;
+}
+
+.media-tracker__path {
+	font-size: 11px;
+	color: var(--text-faint);
+	word-break: break-all;
+}
+
+.media-tracker__empty {
+	padding: 24px;
+	border: 1px dashed var(--background-modifier-border);
+	border-radius: 12px;
+	text-align: center;
+	color: var(--text-muted);
+}
+
+.media-tracker__modal h3 {
+	margin-top: 16px;
+}
+
+.media-tracker__modal-actions {
+	margin-top: 16px;
+	display: flex;
+	justify-content: flex-end;
+}
