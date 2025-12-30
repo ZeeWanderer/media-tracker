@@ -83,3 +83,101 @@ export async function createMediaNote(app: App, settings: MediaTrackerSettings, 
 	const leaf = app.workspace.getLeaf("tab");
 	await leaf.openFile(file);
 }
+
+export async function setNovelProgress(app: App, file: import("obsidian").TFile, value: string) {
+	const trimmed = value.trim();
+	await app.fileManager.processFrontMatter(file, (frontmatter) => {
+		if (!frontmatter) {
+			return;
+		}
+		if (!trimmed.length) {
+			delete frontmatter.progress;
+			delete frontmatter.progressLabel;
+			delete frontmatter.progressUnit;
+			return;
+		}
+
+		const chapterMatch = trimmed.match(/^(?:ch|chapter)\s+(.+)$/i);
+		const chapterValue = chapterMatch?.[1]?.trim();
+		const numeric = chapterValue ?? trimmed;
+		if (/^\d+(?:\.\d+)?$/.test(numeric)) {
+			frontmatter.progress = numeric;
+			frontmatter.progressUnit = "ch";
+			delete frontmatter.progressLabel;
+			return;
+		}
+
+		frontmatter.progressLabel = trimmed;
+	});
+}
+
+export async function setSeriesProgress(app: App, file: import("obsidian").TFile, value: string) {
+	const trimmed = value.trim();
+	await app.fileManager.processFrontMatter(file, (frontmatter) => {
+		if (!frontmatter) {
+			return;
+		}
+		if (!trimmed.length) {
+			delete frontmatter.season;
+			delete frontmatter.episode;
+			return;
+		}
+
+		const seMatch = trimmed.match(/S\s*(\d+)\s*E\s*(\d+)/i);
+		const altMatch = trimmed.match(/(\d+)\s*x\s*(\d+)/i);
+		const match = seMatch ?? altMatch;
+		if (!match || !match[1] || !match[2]) {
+			return;
+		}
+		frontmatter.season = Number.parseInt(match[1], 10);
+		frontmatter.episode = Number.parseInt(match[2], 10);
+	});
+}
+
+export async function setMediaLink(
+	app: App,
+	file: import("obsidian").TFile,
+	key: "patreon" | "kemono" | "royalroad" | "imdb" | "hdrezka",
+	url: string,
+) {
+	const trimmed = url.trim();
+	await app.fileManager.processFrontMatter(file, (frontmatter) => {
+		if (!frontmatter) {
+			return;
+		}
+		if (!trimmed.length) {
+			delete frontmatter[key];
+			return;
+		}
+		frontmatter[key] = trimmed;
+	});
+}
+
+export async function setCustomLink(
+	app: App,
+	file: import("obsidian").TFile,
+	label: string,
+	url: string,
+) {
+	const trimmedLabel = label.trim();
+	const trimmedUrl = url.trim();
+	if (!trimmedLabel.length) {
+		return;
+	}
+	await app.fileManager.processFrontMatter(file, (frontmatter) => {
+		if (!frontmatter) {
+			return;
+		}
+		const links = frontmatter.links;
+		if (!trimmedUrl.length) {
+			if (links && typeof links === "object" && !Array.isArray(links)) {
+				delete (links as Record<string, unknown>)[trimmedLabel];
+			}
+			return;
+		}
+		if (!links || typeof links !== "object" || Array.isArray(links)) {
+			frontmatter.links = {};
+		}
+		(frontmatter.links as Record<string, unknown>)[trimmedLabel] = trimmedUrl;
+	});
+}

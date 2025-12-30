@@ -3,10 +3,12 @@ import MediaTrackerPlugin from "./main";
 
 export interface MediaTrackerSettings {
 	mediaFolder: string;
+	displayMode: "cards" | "details";
 }
 
 export const DEFAULT_SETTINGS: MediaTrackerSettings = {
 	mediaFolder: "Media",
+	displayMode: "cards",
 };
 
 export class MediaTrackerSettingTab extends PluginSettingTab {

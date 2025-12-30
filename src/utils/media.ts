@@ -44,8 +44,25 @@ function normalizeLink(value: unknown): string | null {
 	return raw;
 }
 
+function extractExtraLinks(frontmatter: Record<string, unknown>): Array<{label: string; url: string}> {
+	const raw = frontmatter.links;
+	if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+		return [];
+	}
+	return Object.entries(raw as Record<string, unknown>)
+		.map(([label, value]) => {
+			const url = normalizeLink(value);
+			return url ? {label, url} : null;
+		})
+		.filter((entry): entry is {label: string; url: string} => entry !== null);
+}
+
 function buildProgress(type: MediaType, frontmatter: Record<string, unknown>): string | undefined {
 	if (type === "novel") {
+		const label = normalizeString(frontmatter.progressLabel);
+		if (label) {
+			return label;
+		}
 		const progress = normalizeString(frontmatter.progress ?? frontmatter.chapter);
 		const unit = normalizeString(frontmatter.progressUnit) ?? "ch";
 		return progress ? `${unit} ${progress}` : undefined;
@@ -76,6 +93,8 @@ function parseMediaItem(file: TFile, app: App): MediaItem | null {
 	const title = normalizeString(frontmatter.title) ?? file.basename;
 	const status = normalizeStatus(frontmatter.status);
 	const author = normalizeString(frontmatter.author);
+	const progressRaw = normalizeString(frontmatter.progress ?? frontmatter.chapter);
+	const progressLabel = normalizeString(frontmatter.progressLabel);
 	const season = normalizeString(frontmatter.season);
 	const episode = normalizeString(frontmatter.episode);
 	const year = normalizeString(frontmatter.year);
@@ -87,6 +106,8 @@ function parseMediaItem(file: TFile, app: App): MediaItem | null {
 		status,
 		author,
 		progress: buildProgress(type, frontmatter),
+		progressRaw,
+		progressLabel,
 		season: season ? Number(season) : undefined,
 		episode: episode ? Number(episode) : undefined,
 		year: year ? Number(year) : undefined,
@@ -95,7 +116,9 @@ function parseMediaItem(file: TFile, app: App): MediaItem | null {
 			kemono: normalizeLink(frontmatter.kemono),
 			royalroad: normalizeLink(frontmatter.royalroad ?? frontmatter.royalRoad),
 			imdb: normalizeLink(frontmatter.imdb ?? frontmatter.imdbId),
+			hdrezka: normalizeLink(frontmatter.hdrezka),
 		},
+		extraLinks: extractExtraLinks(frontmatter),
 	};
 }
 

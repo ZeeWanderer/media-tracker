@@ -1,17 +1,38 @@
 # Media Tracker (Obsidian plugin)
 
-Vault-first tracker for novels, series, and movies with a dedicated GUI view.
+Track novels, series, and movies in your Obsidian vault with a dedicated dashboard.
 
-## Features
+## What it does
 
-- Dedicated **Media tracker** view with filters and quick actions.
-- Notes stored as plain Markdown with YAML frontmatter.
-- Buttons for Patreon, Kemono, RoyalRoad (novels) and IMDB (series/movies).
-- Command to create new media notes with a guided modal.
+- Dashboard view with Cards and Details modes (sorting + sticky header in Details).
+- Search by title or author.
+- One‑click actions: open note, external links, inline status and progress edits.
+- Optional link buttons: Patreon, Kemono, RoyalRoad, IMDB, HDRezka.
+- Stores everything as plain Markdown notes with YAML frontmatter.
+
+## Quick start
+
+1. Install dependencies: `npm install`
+2. Build + deploy into your vault: `npm run deploy`
+   - Set a custom vault path:  
+     `MEDIA_TRACKER_VAULT=/path/to/Vault npm run deploy`
+3. In Obsidian: **Settings → Community plugins** → enable **Media Tracker**.
+4. Open **Command Palette → Open media tracker** (or click the film ribbon icon).
+
+## How to use
+
+- Click **New entry** to create a note.
+- Click a progress label to edit it inline (novels).
+- Use the **+** button to advance numeric progress (when recognized).
+- Right‑click a card or row for the context menu:
+  - Open note
+  - Links → add Patreon/Kemono/RoyalRoad/IMDB/HDRezka/custom
+  - Delete note
 
 ## Storage format
 
-Create notes inside the configured media folder (default: `Media/`). Each note uses YAML frontmatter.
+Notes live in a single folder inside your vault (default: `Media/`).
+Each note is just Markdown with frontmatter.
 
 ### Novel
 
@@ -38,6 +59,7 @@ status: active
 season: 1
 episode: 5
 imdb: tt14688458
+hdrezka:
 ---
 ```
 
@@ -50,40 +72,27 @@ title: Dune
 status: planned
 year: 2021
 imdb: tt1160419
+hdrezka:
 ---
 ```
 
-Notes with missing URLs still show buttons, but they are disabled until you add links.
+### Custom links
 
-## Commands
+You can add arbitrary links via frontmatter:
 
-- **Open media tracker**: Opens the GUI view.
-- **Create media note**: Opens a modal to create a new media note.
+```markdown
+links:
+  FictionPress: https://www.fictionpress.com/...
+  Forum: https://forums.example.com/...
+```
 
 ## Settings
 
-- **Media folder**: Vault-relative folder where notes live (default `Media`).
-
-## Local install & development
-
-1. In this repo: `npm install`
-2. Build in watch mode: `npm run dev`
-3. Copy `manifest.json`, `main.js`, `styles.css` into your vault:
-   `MediaTracker/.obsidian/plugins/media-tracker/`
-4. Reload Obsidian and enable the plugin in **Settings → Community plugins**.
+- **Media folder**: where notes live (default `Media`).
+- The view mode (Cards/Details) is remembered.
 
 ## Iteration workflow
 
-- Keep `npm run dev` running.
-- After each build, reload Obsidian to pick up changes.
+- Always run `npm run build` after edits.
+- Run `npm run deploy` when you want feedback in Obsidian.
 
-## Legacy list migration
-
-Your `Tmp/patreon_to_read.index` file can be manually converted into markdown notes.
-Recommended approach:
-
-1. Paste items into a new note in the vault (for reference).
-2. Use **Create media note** to generate structured notes.
-3. Copy over author/title/progress and fill in URLs later.
-
-If you want automated import, we can add an import command that parses the list after you place the file inside the vault.

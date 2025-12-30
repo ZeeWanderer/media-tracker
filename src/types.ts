@@ -10,6 +10,8 @@ export interface MediaItem {
 	status: MediaStatus;
 	author?: string;
 	progress?: string;
+	progressRaw?: string;
+	progressLabel?: string;
 	season?: number;
 	episode?: number;
 	year?: number;
@@ -18,7 +20,9 @@ export interface MediaItem {
 		kemono?: string | null;
 		royalroad?: string | null;
 		imdb?: string | null;
+		hdrezka?: string | null;
 	};
+	extraLinks?: Array<{label: string; url: string}>;
 }
 
 export interface NewMediaDraft {
