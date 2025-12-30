@@ -98,6 +98,12 @@ function parseMediaItem(file: TFile, app: App): MediaItem | null {
 	const season = normalizeString(frontmatter.season);
 	const episode = normalizeString(frontmatter.episode);
 	const year = normalizeString(frontmatter.year);
+	const tmdbId = normalizeString(frontmatter.tmdbId);
+	const tmdbLastChecked = normalizeString(frontmatter.tmdbLastChecked);
+	const tmdbLatestSeason = normalizeString(frontmatter.tmdbLatestSeason);
+	const tmdbLatestEpisode = normalizeString(frontmatter.tmdbLatestEpisode);
+	const tmdbLatestAirDate = normalizeString(frontmatter.tmdbLatestAirDate);
+	const tmdbLatestName = normalizeString(frontmatter.tmdbLatestName);
 
 	return {
 		file,
@@ -119,6 +125,12 @@ function parseMediaItem(file: TFile, app: App): MediaItem | null {
 			hdrezka: normalizeLink(frontmatter.hdrezka),
 		},
 		extraLinks: extractExtraLinks(frontmatter),
+		tmdbId: tmdbId ? Number(tmdbId) : undefined,
+		tmdbLastChecked: tmdbLastChecked ? Number(tmdbLastChecked) : undefined,
+		tmdbLatestSeason: tmdbLatestSeason ? Number(tmdbLatestSeason) : undefined,
+		tmdbLatestEpisode: tmdbLatestEpisode ? Number(tmdbLatestEpisode) : undefined,
+		tmdbLatestAirDate: tmdbLatestAirDate ?? undefined,
+		tmdbLatestName: tmdbLatestName ?? undefined,
 	};
 }
 
@@ -129,7 +141,7 @@ export function getMediaItems(app: App, settings: MediaTrackerSettings): MediaIt
 		.map((file) => parseMediaItem(file, app))
 		.filter((item): item is MediaItem => item !== null);
 
-	items.sort((a, b) => a.title.localeCompare(b.title));
+	items.sort((a, b) => getTitleSortKey(a.title).localeCompare(getTitleSortKey(b.title)));
 	return items;
 }
 
@@ -146,3 +158,8 @@ export const MEDIA_STATUS_LABELS: Record<MediaStatus, string> = {
 	"on-hold": "On hold",
 	dropped: "Dropped",
 };
+
+export function getTitleSortKey(title: string): string {
+	const trimmed = title.trim();
+	return trimmed.replace(/^the\s+/i, "");
+}

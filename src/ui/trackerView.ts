@@ -1,10 +1,11 @@
 import {ItemView, Menu, WorkspaceLeaf} from "obsidian";
 import MediaTrackerPlugin from "../main";
 import {MediaItem, MediaStatus, MediaType} from "../types";
-import {MEDIA_STATUS_LABELS, MEDIA_TYPE_LABELS, getMediaItems} from "../utils/media";
+import {MEDIA_STATUS_LABELS, MEDIA_TYPE_LABELS, getMediaItems, getTitleSortKey} from "../utils/media";
 import {NewMediaModal} from "./newMediaModal";
 import {setCustomLink, setMediaLink, setNovelProgress, setSeriesProgress} from "../utils/notes";
 import {LinkModal} from "./linkModal";
+import {refreshAllSeries, refreshSeriesLatest} from "../utils/tmdb";
 
 export const MEDIA_TRACKER_VIEW = "media-tracker-view";
 
@@ -62,6 +63,20 @@ export class MediaTrackerView extends ItemView {
 		header.createEl("h2", {text: "Media tracker"});
 
 		const actions = header.createDiv({cls: "media-tracker__actions"});
+		const refreshButton = actions.createEl("button", {cls: "media-tracker__button media-tracker__icon-button", text: "⟳"});
+		refreshButton.setAttr("aria-label", "Refresh series updates");
+		refreshButton.setAttr("title", this.getRefreshTooltip());
+		refreshButton.addEventListener("click", async () => {
+			const items = getMediaItems(this.app, this.plugin.settings);
+			await refreshAllSeries(this.app, this.plugin.settings, items, (current, total) => {
+				refreshButton.setText(`⟳ ${current}/${total}`);
+			});
+			this.plugin.settings.tmdbLastSync = Date.now();
+			await this.plugin.saveSettings();
+			refreshButton.setText("⟳");
+			refreshButton.setAttr("title", this.getRefreshTooltip());
+			this.render();
+		});
 		const addButton = actions.createEl("button", {cls: "media-tracker__button", text: "New entry"});
 		addButton.addEventListener("click", () => new NewMediaModal(this.plugin).open());
 
@@ -348,7 +363,9 @@ export class MediaTrackerView extends ItemView {
 			event.preventDefault();
 			this.openProgressEditor(label, item);
 		});
-		wrapper.appendChild(label);
+		const control = document.createElement("div");
+		control.classList.add("media-tracker__progress-control");
+		control.appendChild(label);
 
 		const nextValue = this.getNextProgressValue(item);
 		if (nextValue) {
@@ -365,10 +382,61 @@ export class MediaTrackerView extends ItemView {
 					await setNovelProgress(this.app, item.file, nextValue);
 				}
 			});
-			wrapper.appendChild(increment);
+			control.appendChild(increment);
+		}
+
+		wrapper.appendChild(control);
+
+		const badge = this.renderLatestBadge(item);
+		if (badge) {
+			wrapper.appendChild(badge);
 		}
 
 		return wrapper;
+	}
+
+	private renderLatestBadge(item: MediaItem): HTMLElement | null {
+		if (item.type !== "series") {
+			return null;
+		}
+		if (!item.tmdbLatestSeason || !item.tmdbLatestEpisode) {
+			return null;
+		}
+		const badge = document.createElement("span");
+		badge.classList.add("media-tracker__badge");
+		let isNew = false;
+		if (item.season && item.episode !== undefined) {
+			if (item.tmdbLatestSeason > item.season) {
+				isNew = true;
+			} else if (item.tmdbLatestSeason === item.season && item.tmdbLatestEpisode > item.episode) {
+				isNew = true;
+			}
+		}
+		if (isNew) {
+			badge.classList.add("media-tracker__badge--new");
+			badge.textContent = `New S${item.tmdbLatestSeason}E${item.tmdbLatestEpisode}`;
+		} else {
+			badge.textContent = `Latest S${item.tmdbLatestSeason}E${item.tmdbLatestEpisode}`;
+		}
+		if (item.tmdbLatestAirDate || item.tmdbLatestName) {
+			const parts = [];
+			if (item.tmdbLatestName) {
+				parts.push(item.tmdbLatestName);
+			}
+			if (item.tmdbLatestAirDate) {
+				parts.push(item.tmdbLatestAirDate);
+			}
+			badge.setAttr("title", parts.join(" • "));
+		}
+		return badge;
+	}
+
+	private getRefreshTooltip(): string {
+		if (!this.plugin.settings.tmdbLastSync) {
+			return "Check latest episodes (never updated)";
+		}
+		const date = new Date(this.plugin.settings.tmdbLastSync);
+		return `Check latest episodes (last updated ${date.toLocaleString()})`;
 	}
 
 	private renderStatusSelect(item: MediaItem, currentLabel: string): HTMLElement {
@@ -403,6 +471,7 @@ export class MediaTrackerView extends ItemView {
 		input.type = "text";
 		input.classList.add("media-tracker__progress-input");
 		input.value = item.progress ?? "";
+		input.size = Math.max(4, input.value.length);
 
 		const finish = async (save: boolean) => {
 			if (save) {
@@ -509,7 +578,7 @@ export class MediaTrackerView extends ItemView {
 					return direction * this.getProgressValue(a).localeCompare(this.getProgressValue(b));
 				case "title":
 				default:
-					return direction * a.title.localeCompare(b.title);
+					return direction * getTitleSortKey(a.title).localeCompare(getTitleSortKey(b.title));
 			}
 		});
 	}
@@ -609,6 +678,15 @@ export class MediaTrackerView extends ItemView {
 				void this.app.workspace.getLeaf("tab").openFile(item.file);
 			}));
 		menu.addSeparator();
+		if (item.type === "series") {
+			menu.addItem((itemMenu) => itemMenu
+				.setTitle("Check latest episode")
+				.onClick(async () => {
+					await refreshSeriesLatest(this.app, this.plugin.settings, item, this.plugin.settings.tmdbMinIntervalMs);
+					this.render();
+				}));
+			menu.addSeparator();
+		}
 
 		const addLink = (label: string, key: "patreon" | "kemono" | "royalroad" | "imdb" | "hdrezka") => {
 			new LinkModal(this.app, {

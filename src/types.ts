@@ -23,6 +23,12 @@ export interface MediaItem {
 		hdrezka?: string | null;
 	};
 	extraLinks?: Array<{label: string; url: string}>;
+	tmdbId?: number;
+	tmdbLastChecked?: number;
+	tmdbLatestSeason?: number;
+	tmdbLatestEpisode?: number;
+	tmdbLatestAirDate?: string;
+	tmdbLatestName?: string;
 }
 
 export interface NewMediaDraft {
