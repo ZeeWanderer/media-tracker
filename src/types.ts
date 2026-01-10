@@ -27,6 +27,8 @@ export interface MediaItem {
 	tmdbLastChecked?: number;
 	tmdbLatestSeason?: number;
 	tmdbLatestEpisode?: number;
+	tmdbLatestSeasonEpisodes?: number;
+	tmdbSeasonEpisodes?: Record<string, number>;
 	tmdbLatestAirDate?: string;
 	tmdbLatestName?: string;
 }

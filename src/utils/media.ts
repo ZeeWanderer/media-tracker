@@ -102,6 +102,8 @@ function parseMediaItem(file: TFile, app: App): MediaItem | null {
 	const tmdbLastChecked = normalizeString(frontmatter.tmdbLastChecked);
 	const tmdbLatestSeason = normalizeString(frontmatter.tmdbLatestSeason);
 	const tmdbLatestEpisode = normalizeString(frontmatter.tmdbLatestEpisode);
+	const tmdbLatestSeasonEpisodes = normalizeString(frontmatter.tmdbLatestSeasonEpisodes);
+	const tmdbSeasonEpisodes = parseSeasonEpisodes(frontmatter.tmdbSeasonEpisodes);
 	const tmdbLatestAirDate = normalizeString(frontmatter.tmdbLatestAirDate);
 	const tmdbLatestName = normalizeString(frontmatter.tmdbLatestName);
 
@@ -129,9 +131,41 @@ function parseMediaItem(file: TFile, app: App): MediaItem | null {
 		tmdbLastChecked: tmdbLastChecked ? Number(tmdbLastChecked) : undefined,
 		tmdbLatestSeason: tmdbLatestSeason ? Number(tmdbLatestSeason) : undefined,
 		tmdbLatestEpisode: tmdbLatestEpisode ? Number(tmdbLatestEpisode) : undefined,
+		tmdbLatestSeasonEpisodes: tmdbLatestSeasonEpisodes ? Number(tmdbLatestSeasonEpisodes) : undefined,
+		tmdbSeasonEpisodes,
 		tmdbLatestAirDate: tmdbLatestAirDate ?? undefined,
 		tmdbLatestName: tmdbLatestName ?? undefined,
 	};
+}
+
+function parseSeasonEpisodes(value: unknown): Record<string, number> | undefined {
+	if (!value) {
+		return undefined;
+	}
+	if (typeof value === "string") {
+		try {
+			const parsed = JSON.parse(value) as Record<string, number>;
+			return sanitizeSeasonEpisodes(parsed);
+		} catch {
+			return undefined;
+		}
+	}
+	if (typeof value === "object") {
+		return sanitizeSeasonEpisodes(value as Record<string, number>);
+	}
+	return undefined;
+}
+
+function sanitizeSeasonEpisodes(map: Record<string, number> | null): Record<string, number> | undefined {
+	if (!map) {
+		return undefined;
+	}
+	const entries = Object.entries(map)
+		.filter(([key, val]) => Number.isFinite(Number(key)) && Number.isFinite(Number(val)));
+	if (!entries.length) {
+		return undefined;
+	}
+	return Object.fromEntries(entries.map(([key, val]) => [String(Number(key)), Number(val)]));
 }
 
 export function getMediaItems(app: App, settings: MediaTrackerSettings): MediaItem[] {

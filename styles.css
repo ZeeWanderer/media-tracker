@@ -259,6 +259,8 @@
 .media-tracker__progress-label {
 	background: transparent;
 	border: none;
+	border-radius: 0;
+	box-shadow: none;
 	padding: 0 8px;
 	color: inherit;
 	cursor: pointer;
@@ -275,16 +277,24 @@
 
 .media-tracker__progress-add {
 	border: none;
+	border-radius: 0;
+	box-shadow: none;
 	background: transparent;
 	color: var(--text-normal);
-	width: 28px;
+	width: 24px;
 	height: 28px;
 	padding: 0;
 	line-height: 28px;
 	text-align: center;
 	cursor: pointer;
-	font-size: 11px;
+	font-size: 0;
 	border-left: 1px solid var(--background-modifier-border);
+}
+
+.media-tracker__plus-icon {
+	width: 14px;
+	height: 14px;
+	display: block;
 }
 
 .media-tracker__badge {
@@ -322,10 +332,52 @@
 	justify-content: center;
 	width: 28px;
 	height: 28px;
-	padding: 2px !important;
+	padding: 0 !important;
 	box-sizing: border-box;
 	line-height: 0;
 	font-size: 0;
+}
+
+.media-tracker__refresh-button {
+	width: 28px;
+	min-width: 28px;
+	padding: 0;
+	gap: 4px;
+	line-height: 1;
+}
+
+.media-tracker__refresh-button--progress {
+	width: auto;
+	padding: 0 6px;
+}
+
+.media-tracker__refresh-icon {
+	width: 18px;
+	height: 18px;
+	display: block;
+	margin: 0 auto;
+}
+
+.media-tracker__cleanup-button svg {
+	width: 18px;
+	height: 18px;
+	display: block;
+}
+
+.media-tracker__cleanup-icon {
+	width: 18px;
+	height: 18px;
+	display: block;
+}
+
+.media-tracker__refresh-label {
+	display: none;
+	font-size: 11px;
+	line-height: 1;
+}
+
+.media-tracker__refresh-button--progress .media-tracker__refresh-label {
+	display: inline-block;
 }
 
 .media-tracker__link-icon {
@@ -342,13 +394,18 @@
 .media-tracker__progress-input {
 	min-width: 60px;
 	max-width: 100px;
-	padding: 0 6px;
-	height: 22px;
-	border-radius: 6px;
-	border: 1px solid var(--background-modifier-border);
-	background: var(--background-primary);
+	padding: 0 8px;
+	height: 26px;
+	border-radius: 0 !important;
+	border: none !important;
+	background: transparent;
+	box-shadow: none !important;
 	color: var(--text-normal);
 	font-size: 12px;
+}
+
+.media-tracker__progress-control .media-tracker__progress-input {
+	height: 28px;
 }
 
 .media-tracker__links {
@@ -358,17 +415,20 @@
 }
 
 .media-tracker__button {
-	border-radius: 8px;
-	border: 1px solid var(--background-modifier-border);
-	background: var(--background-primary);
+	border-radius: var(--button-radius);
+	border: 1px solid transparent;
+	background: var(--interactive-normal);
 	color: var(--text-normal);
+	box-shadow: var(--input-shadow);
 	padding: 6px 10px;
 	cursor: pointer;
-	font-size: 12px;
+	font-size: var(--font-ui-small);
+	font-weight: var(--input-font-weight);
 }
 
 .media-tracker__button:hover {
-	border-color: var(--interactive-accent);
+	background: var(--interactive-hover);
+	box-shadow: var(--input-shadow-hover);
 }
 
 .media-tracker__button.is-disabled {

@@ -1,4 +1,4 @@
-import {ItemView, Menu, WorkspaceLeaf} from "obsidian";
+import {ItemView, Menu, Notice, WorkspaceLeaf} from "obsidian";
 import MediaTrackerPlugin from "../main";
 import {MediaItem, MediaStatus, MediaType} from "../types";
 import {MEDIA_STATUS_LABELS, MEDIA_TYPE_LABELS, getMediaItems, getTitleSortKey} from "../utils/media";
@@ -6,6 +6,7 @@ import {NewMediaModal} from "./newMediaModal";
 import {setCustomLink, setMediaLink, setNovelProgress, setSeriesProgress} from "../utils/notes";
 import {LinkModal} from "./linkModal";
 import {refreshAllSeries, refreshSeriesLatest} from "../utils/tmdb";
+import {getIconBaseName, renderCard, renderTableHeader, renderTableRow, type RenderHandlers, type SortDirection, type SortKey} from "./trackerRenderer";
 
 export const MEDIA_TRACKER_VIEW = "media-tracker-view";
 
@@ -13,8 +14,6 @@ const TYPE_FILTERS: Array<MediaType | "all"> = ["all", "novel", "series", "movie
 const STATUS_FILTERS: Array<MediaStatus | "all"> = ["all", "planned", "active", "completed", "on-hold", "dropped"];
 
 type DisplayMode = "cards" | "details";
-type SortKey = "title" | "type" | "status" | "progress";
-type SortDirection = "asc" | "desc";
 
 export class MediaTrackerView extends ItemView {
 	plugin: MediaTrackerPlugin;
@@ -63,18 +62,40 @@ export class MediaTrackerView extends ItemView {
 		header.createEl("h2", {text: "Media tracker"});
 
 		const actions = header.createDiv({cls: "media-tracker__actions"});
-		const refreshButton = actions.createEl("button", {cls: "media-tracker__button media-tracker__icon-button", text: "⟳"});
+		const refreshButton = actions.createEl("button", {cls: "media-tracker__button media-tracker__icon-button media-tracker__refresh-button"});
 		refreshButton.setAttr("aria-label", "Refresh series updates");
 		refreshButton.setAttr("title", this.getRefreshTooltip());
+		refreshButton.appendChild(this.createRefreshIcon());
+		const refreshLabel = refreshButton.createSpan({cls: "media-tracker__refresh-label"});
 		refreshButton.addEventListener("click", async () => {
 			const items = getMediaItems(this.app, this.plugin.settings);
 			await refreshAllSeries(this.app, this.plugin.settings, items, (current, total) => {
-				refreshButton.setText(`⟳ ${current}/${total}`);
+				refreshLabel.setText(`${current}/${total}`);
+				refreshButton.addClass("media-tracker__refresh-button--progress");
 			});
 			this.plugin.settings.tmdbLastSync = Date.now();
 			await this.plugin.saveSettings();
-			refreshButton.setText("⟳");
+			refreshLabel.setText("");
+			refreshButton.removeClass("media-tracker__refresh-button--progress");
 			refreshButton.setAttr("title", this.getRefreshTooltip());
+			this.render();
+		});
+		const cleanupButton = actions.createEl("button", {cls: "media-tracker__button media-tracker__icon-button media-tracker__cleanup-button"});
+		cleanupButton.setAttr("aria-label", "Cleanup media frontmatter");
+		cleanupButton.setAttr("title", "Remove unused frontmatter fields");
+		cleanupButton.appendChild(this.createCleanupIcon());
+		cleanupButton.addEventListener("click", async () => {
+			const confirmed = window.confirm("Clean up frontmatter for all media notes? This removes unknown fields.");
+			if (!confirmed) {
+				return;
+			}
+			const items = getMediaItems(this.app, this.plugin.settings);
+			for (const item of items) {
+				await this.app.fileManager.processFrontMatter(item.file, (frontmatter) => {
+					this.pruneFrontmatter(frontmatter);
+				});
+			}
+			new Notice(`Cleaned frontmatter for ${items.length} media notes.`);
 			this.render();
 		});
 		const addButton = actions.createEl("button", {cls: "media-tracker__button", text: "New entry"});
@@ -102,16 +123,17 @@ export class MediaTrackerView extends ItemView {
 			return;
 		}
 
+		const handlers = this.getRenderHandlers();
 		if (this.displayMode === "details") {
 			const list = contentEl.createDiv({cls: "media-tracker__table"});
-			list.appendChild(this.renderTableHeader());
+			list.appendChild(renderTableHeader(this.sortKey, this.sortDirection, (key) => this.handleSortChange(key)));
 			for (const item of sorted) {
-				list.appendChild(this.renderTableRow(item));
+				list.appendChild(renderTableRow(item, handlers));
 			}
 		} else {
 			const list = contentEl.createDiv({cls: "media-tracker__list"});
 			for (const item of filtered) {
-				list.appendChild(this.renderCard(item));
+				list.appendChild(renderCard(item, handlers));
 			}
 		}
 	}
@@ -207,228 +229,66 @@ export class MediaTrackerView extends ItemView {
 		return title.includes(query) || author.includes(query);
 	}
 
-	private renderCard(item: MediaItem): HTMLElement {
-		const card = document.createElement("div");
-		card.classList.add("media-tracker__card");
-		card.addEventListener("contextmenu", (event) => {
-			event.preventDefault();
-			this.openCardMenu(event, item);
-		});
-
-		const titleRow = document.createElement("div");
-		titleRow.classList.add("media-tracker__card-title");
-		const titleText = document.createElement("span");
-		titleText.textContent = item.title;
-		const typePill = document.createElement("span");
-		typePill.textContent = MEDIA_TYPE_LABELS[item.type];
-		typePill.classList.add("media-tracker__pill");
-		titleRow.appendChild(titleText);
-		titleRow.appendChild(typePill);
-		card.appendChild(titleRow);
-
-		const meta = document.createElement("div");
-		meta.classList.add("media-tracker__meta-grid");
-
-		const rowOne = document.createElement("div");
-		rowOne.classList.add("media-tracker__meta-row");
-		const statusLabel = MEDIA_STATUS_LABELS[item.status];
-		rowOne.appendChild(this.renderStatusSelect(item, statusLabel));
-		if (item.author) {
-			const author = document.createElement("div");
-			author.classList.add("media-tracker__meta-item", "media-tracker__meta-author");
-			author.textContent = item.author;
-			rowOne.appendChild(author);
-		} else {
-			const author = document.createElement("div");
-			author.classList.add("media-tracker__meta-item", "media-tracker__meta-placeholder", "media-tracker__meta-author");
-			author.textContent = " ";
-			rowOne.appendChild(author);
-		}
-		meta.appendChild(rowOne);
-
-		const rowTwo = document.createElement("div");
-		rowTwo.classList.add("media-tracker__meta-row");
-		if (item.progress && (item.type === "novel" || item.type === "series")) {
-			rowTwo.appendChild(this.renderProgressMeta(item));
-		} else if (item.progress) {
-			const progress = document.createElement("div");
-			progress.classList.add("media-tracker__meta-item");
-			progress.textContent = item.progress;
-			rowTwo.appendChild(progress);
-		} else {
-			const progress = document.createElement("div");
-			progress.classList.add("media-tracker__meta-item", "media-tracker__meta-placeholder");
-			progress.textContent = " ";
-			rowTwo.appendChild(progress);
-		}
-		meta.appendChild(rowTwo);
-
-		card.appendChild(meta);
-
-		const actions = document.createElement("div");
-		actions.classList.add("media-tracker__actions-row");
-		const openNoteButton = document.createElement("button");
-		openNoteButton.textContent = "Note";
-		openNoteButton.classList.add("media-tracker__button", "media-tracker__note-button");
-		actions.appendChild(openNoteButton);
-		openNoteButton.addEventListener("click", async () => {
-			await this.app.workspace.getLeaf("tab").openFile(item.file);
-		});
-
-		const linkGroup = document.createElement("div");
-		linkGroup.classList.add("media-tracker__links");
-		const linkCount = this.renderLinks(linkGroup, item);
-		if (linkCount > 0) {
-			actions.appendChild(linkGroup);
-		}
-		card.appendChild(actions);
-
-		return card;
-	}
-
-	private renderTableHeader(): HTMLElement {
-		const row = document.createElement("div");
-		row.classList.add("media-tracker__table-row", "media-tracker__table-header");
-		row.appendChild(this.createSortableHeader("Title", "title"));
-		row.appendChild(this.createSortableHeader("Progress", "progress"));
-		row.appendChild(this.createSortableHeader("Type", "type"));
-		row.appendChild(this.createSortableHeader("Status", "status"));
-		const linksHeader = document.createElement("div");
-		linksHeader.classList.add("media-tracker__table-cell");
-		linksHeader.textContent = "Links";
-		row.appendChild(linksHeader);
-		return row;
-	}
-
-	private renderTableRow(item: MediaItem): HTMLElement {
-		const row = document.createElement("div");
-		row.classList.add("media-tracker__table-row");
-		row.addEventListener("contextmenu", (event) => {
-			event.preventDefault();
-			this.openCardMenu(event, item);
-		});
-
-		const titleCell = document.createElement("div");
-		titleCell.classList.add("media-tracker__table-cell", "media-tracker__table-title");
-		titleCell.textContent = item.title;
-		row.appendChild(titleCell);
-
-		const progressCell = document.createElement("div");
-		progressCell.classList.add("media-tracker__table-cell");
-		if ((item.type === "novel" || item.type === "series") && item.progress) {
-			progressCell.appendChild(this.renderProgressMeta(item, true));
-		} else {
-			progressCell.textContent = item.progress ?? "-";
-		}
-		row.appendChild(progressCell);
-
-		const typeCell = document.createElement("div");
-		typeCell.classList.add("media-tracker__table-cell");
-		typeCell.textContent = MEDIA_TYPE_LABELS[item.type];
-		row.appendChild(typeCell);
-
-		const statusCell = document.createElement("div");
-		statusCell.classList.add("media-tracker__table-cell");
-		statusCell.appendChild(this.renderStatusSelect(item, MEDIA_STATUS_LABELS[item.status]));
-		row.appendChild(statusCell);
-
-		const linksCell = document.createElement("div");
-		linksCell.classList.add("media-tracker__table-cell", "media-tracker__table-links");
-		const openButton = document.createElement("button");
-		openButton.textContent = "Note";
-		openButton.classList.add("media-tracker__button");
-		openButton.addEventListener("click", async () => {
-			await this.app.workspace.getLeaf("tab").openFile(item.file);
-		});
-		linksCell.appendChild(openButton);
-
-		this.renderLinks(linksCell, item);
-		row.appendChild(linksCell);
-
-		return row;
-	}
-
-	private renderProgressMeta(item: MediaItem, compact = false): HTMLElement {
-		const wrapper = document.createElement("div");
-		wrapper.classList.add("media-tracker__progress");
-		if (compact) {
-			wrapper.classList.add("media-tracker__progress--compact");
-		}
-
-		const label = document.createElement("button");
-		label.type = "button";
-		label.classList.add("media-tracker__progress-label");
-		label.textContent = item.progress ?? "";
-		label.addEventListener("click", (event) => {
-			event.preventDefault();
-			this.openProgressEditor(label, item);
-		});
-		const control = document.createElement("div");
-		control.classList.add("media-tracker__progress-control");
-		control.appendChild(label);
-
-		const nextValue = this.getNextProgressValue(item);
-		if (nextValue) {
-			const increment = document.createElement("button");
-			increment.type = "button";
-			increment.classList.add("media-tracker__progress-add");
-			increment.textContent = "+";
-			increment.setAttr("title", "Advance chapter");
-			increment.addEventListener("click", async (event) => {
+	private getRenderHandlers(): RenderHandlers {
+		return {
+			onOpenNote: async (item) => {
+				const fullItem = item as MediaItem;
+				await this.app.workspace.getLeaf("tab").openFile(fullItem.file);
+			},
+			onContextMenu: (event, item) => {
 				event.preventDefault();
-				if (item.type === "series") {
-					await setSeriesProgress(this.app, item.file, nextValue);
+				this.openCardMenu(event, item as MediaItem);
+			},
+			onStatusChange: async (item, status) => {
+				const fullItem = item as MediaItem;
+				await this.app.fileManager.processFrontMatter(fullItem.file, (frontmatter) => {
+					frontmatter.status = status;
+				});
+			},
+			onProgressEdit: (target, item) => {
+				this.openProgressEditor(target, item as MediaItem);
+			},
+			onProgressAdvance: async (item, nextValue) => {
+				const fullItem = item as MediaItem;
+				if (fullItem.type === "series") {
+					await setSeriesProgress(this.app, fullItem.file, nextValue);
 				} else {
-					await setNovelProgress(this.app, item.file, nextValue);
+					await setNovelProgress(this.app, fullItem.file, nextValue);
 				}
-			});
-			control.appendChild(increment);
-		}
-
-		wrapper.appendChild(control);
-
-		const badge = this.renderLatestBadge(item);
-		if (badge) {
-			wrapper.appendChild(badge);
-		}
-
-		return wrapper;
+			},
+			onLinkOpen: (url) => {
+				window.open(url, "_blank", "noopener");
+			},
+			getIconUrl: (label) => {
+				const base = getIconBaseName(label);
+				if (!base) {
+					return null;
+				}
+				const ext = label === "IMDB" ? "png" : "ico";
+				return this.getAssetUrl(`${base}.${ext}`);
+			},
+			getIconFallbackUrl: (label, currentUrl) => {
+				const base = getIconBaseName(label);
+				if (!base) {
+					return null;
+				}
+				const cleanUrl = currentUrl.split("?")[0] ?? currentUrl;
+				if (!cleanUrl.endsWith(".ico")) {
+					return null;
+				}
+				return this.getAssetUrl(`${base}.png`);
+			},
+		};
 	}
 
-	private renderLatestBadge(item: MediaItem): HTMLElement | null {
-		if (item.type !== "series") {
-			return null;
-		}
-		if (!item.tmdbLatestSeason || !item.tmdbLatestEpisode) {
-			return null;
-		}
-		const badge = document.createElement("span");
-		badge.classList.add("media-tracker__badge");
-		let isNew = false;
-		if (item.season && item.episode !== undefined) {
-			if (item.tmdbLatestSeason > item.season) {
-				isNew = true;
-			} else if (item.tmdbLatestSeason === item.season && item.tmdbLatestEpisode > item.episode) {
-				isNew = true;
-			}
-		}
-		if (isNew) {
-			badge.classList.add("media-tracker__badge--new");
-			badge.textContent = `New S${item.tmdbLatestSeason}E${item.tmdbLatestEpisode}`;
+	private handleSortChange(key: SortKey) {
+		if (this.sortKey === key) {
+			this.sortDirection = this.sortDirection === "asc" ? "desc" : "asc";
 		} else {
-			badge.textContent = `Latest S${item.tmdbLatestSeason}E${item.tmdbLatestEpisode}`;
+			this.sortKey = key;
+			this.sortDirection = "asc";
 		}
-		if (item.tmdbLatestAirDate || item.tmdbLatestName) {
-			const parts = [];
-			if (item.tmdbLatestName) {
-				parts.push(item.tmdbLatestName);
-			}
-			if (item.tmdbLatestAirDate) {
-				parts.push(item.tmdbLatestAirDate);
-			}
-			badge.setAttr("title", parts.join(" • "));
-		}
-		return badge;
+		this.render();
 	}
 
 	private getRefreshTooltip(): string {
@@ -437,6 +297,36 @@ export class MediaTrackerView extends ItemView {
 		}
 		const date = new Date(this.plugin.settings.tmdbLastSync);
 		return `Check latest episodes (last updated ${date.toLocaleString()})`;
+	}
+
+	private createRefreshIcon(): SVGSVGElement {
+		const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+		svg.setAttribute("viewBox", "0 0 24 24");
+		svg.setAttribute("aria-hidden", "true");
+		svg.classList.add("media-tracker__refresh-icon");
+		const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+		path.setAttribute(
+			"d",
+			"M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 .34-.03.67-.08 1h2.02c.04-.33.06-.66.06-1 0-4.42-3.58-8-8-8zm-6 6c0-.34.03-.67.08-1H4.06c-.04.33-.06.66-.06 1 0 4.42 3.58 8 8 8v3l4-4-4-4v3c-3.31 0-6-2.69-6-6z",
+		);
+		path.setAttribute("fill", "currentColor");
+		svg.appendChild(path);
+		return svg;
+	}
+
+	private createCleanupIcon(): SVGSVGElement {
+		const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+		svg.setAttribute("viewBox", "0 0 24 24");
+		svg.setAttribute("aria-hidden", "true");
+		svg.classList.add("media-tracker__cleanup-icon");
+		const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+		path.setAttribute(
+			"d",
+			"m19.36 2.72l1.42 1.42l-5.72 5.71c1.07 1.54 1.22 3.39.32 4.59L9.06 8.12c1.2-.9 3.05-.75 4.59.32zM5.93 17.57c-2.01-2.01-3.24-4.41-3.58-6.65l4.88-2.09l7.44 7.44l-2.09 4.88c-2.24-.34-4.64-1.57-6.65-3.58",
+		);
+		path.setAttribute("fill", "currentColor");
+		svg.appendChild(path);
+		return svg;
 	}
 
 	private renderStatusSelect(item: MediaItem, currentLabel: string): HTMLElement {
@@ -547,25 +437,6 @@ export class MediaTrackerView extends ItemView {
 		return String(next + 1);
 	}
 
-	private createSortableHeader(label: string, key: SortKey): HTMLElement {
-		const cell = document.createElement("button");
-		cell.type = "button";
-		cell.classList.add("media-tracker__table-cell", "media-tracker__table-sort");
-		cell.dataset.key = key;
-		const arrow = this.sortKey === key ? (this.sortDirection === "asc" ? " ▲" : " ▼") : "";
-		cell.textContent = `${label}${arrow}`;
-		cell.addEventListener("click", () => {
-			if (this.sortKey === key) {
-				this.sortDirection = this.sortDirection === "asc" ? "desc" : "asc";
-			} else {
-				this.sortKey = key;
-				this.sortDirection = "asc";
-			}
-			this.render();
-		});
-		return cell;
-	}
-
 	private sortItems(items: MediaItem[]): MediaItem[] {
 		const direction = this.sortDirection === "asc" ? 1 : -1;
 		return [...items].sort((a, b) => {
@@ -587,87 +458,71 @@ export class MediaTrackerView extends ItemView {
 		return item.progress ?? "";
 	}
 
-	private renderLinks(container: HTMLElement, item: MediaItem): number {
-		let count = 0;
-		if (item.type === "novel") {
-			count += this.renderLinkButton(container, "Patreon", item.links.patreon) ? 1 : 0;
-			count += this.renderLinkButton(container, "Kemono", item.links.kemono) ? 1 : 0;
-			count += this.renderLinkButton(container, "RoyalRoad", item.links.royalroad) ? 1 : 0;
-		} else {
-			count += this.renderLinkButton(container, "IMDB", item.links.imdb) ? 1 : 0;
-			count += this.renderLinkButton(container, "HDRezka", item.links.hdrezka) ? 1 : 0;
-		}
-		for (const extra of item.extraLinks ?? []) {
-			count += this.renderLinkButton(container, extra.label, extra.url) ? 1 : 0;
-		}
-		return count;
-	}
-
-	private renderLinkButton(container: HTMLElement, label: string, url: string | null | undefined): boolean {
-		if (!url) {
-			return false;
-		}
-		const button = document.createElement("button");
-		button.classList.add("media-tracker__button");
-		const text = document.createElement("span");
-		text.textContent = label;
-		button.appendChild(text);
-
-		const icon = this.createLinkIcon(label);
-		if (icon) {
-			button.classList.add("media-tracker__icon-button");
-			button.prepend(icon);
-			button.setAttr("aria-label", label);
-			button.setAttr("title", label);
-			text.classList.add("media-tracker__icon-fallback");
-			icon.addEventListener("error", () => {
-				if (icon.dataset.fallback === "failed") {
-					icon.remove();
-					button.classList.remove("media-tracker__icon-button");
-					text.classList.remove("media-tracker__icon-fallback");
-				}
-			});
-		}
-		container.appendChild(button);
-		button.addEventListener("click", () => {
-			window.open(url, "_blank", "noopener");
-		});
-		return true;
-	}
-
-	private createLinkIcon(label: string): HTMLImageElement | null {
-		const mapping: Record<string, string> = {
-			Patreon: "patreon",
-			Kemono: "kemono",
-			RoyalRoad: "royalroad",
-			HDRezka: "hdrezka",
-			IMDB: "imdb",
-		};
-		const baseName = mapping[label];
-		if (!baseName) {
-			return null;
-		}
-		const img = document.createElement("img");
-		img.classList.add("media-tracker__link-icon");
-		img.alt = label;
-		img.src = this.getAssetUrl(`${baseName}.ico`);
-		img.dataset.fallback = "ico";
-		img.addEventListener("error", () => {
-			if (img.dataset.fallback === "ico") {
-				img.dataset.fallback = "png";
-				img.src = this.getAssetUrl(`${baseName}.png`);
-				return;
-			}
-			if (img.dataset.fallback === "png") {
-				img.dataset.fallback = "failed";
-			}
-		});
-		return img;
-	}
-
 	private getAssetUrl(fileName: string): string {
 		const pluginDir = `${this.app.vault.configDir}/plugins/${this.plugin.manifest.id}`;
 		return this.app.vault.adapter.getResourcePath(`${pluginDir}/assets/${fileName}`);
+	}
+
+	private pruneFrontmatter(frontmatter: Record<string, unknown>) {
+		const hasSeasonEpisodes = (value: unknown): boolean => {
+			if (!value) {
+				return false;
+			}
+			if (typeof value === "string") {
+				try {
+					const parsed = JSON.parse(value) as Record<string, unknown>;
+					return parsed && typeof parsed === "object" && Object.keys(parsed).length > 0;
+				} catch {
+					return false;
+				}
+			}
+			if (typeof value === "object") {
+				return Object.keys(value as Record<string, unknown>).length > 0;
+			}
+			return false;
+		};
+
+		const type = frontmatter.type ?? frontmatter.media;
+		if (type && !frontmatter.type) {
+			frontmatter.type = type;
+		}
+		if (frontmatter.media) {
+			delete frontmatter.media;
+		}
+
+		if (frontmatter.royalRoad && !frontmatter.royalroad) {
+			frontmatter.royalroad = frontmatter.royalRoad;
+		}
+		if (frontmatter.royalRoad) {
+			delete frontmatter.royalRoad;
+		}
+
+		if (frontmatter.imdbId && !frontmatter.imdb) {
+			frontmatter.imdb = frontmatter.imdbId;
+		}
+		if (frontmatter.imdbId) {
+			delete frontmatter.imdbId;
+		}
+
+		if (frontmatter.chapter && !frontmatter.progress) {
+			frontmatter.progress = frontmatter.chapter;
+		}
+		if (frontmatter.chapter) {
+			delete frontmatter.chapter;
+		}
+
+		if (hasSeasonEpisodes(frontmatter.tmdbSeasonEpisodes)) {
+			delete frontmatter.tmdbLatestSeasonEpisodes;
+			delete frontmatter.tmdbLatestSeason;
+			delete frontmatter.tmdbLatestEpisode;
+		}
+
+		const links = frontmatter.links;
+		if (links && typeof links === "object" && !Array.isArray(links)) {
+			if (Object.keys(links as Record<string, unknown>).length === 0) {
+				delete frontmatter.links;
+			}
+		}
 	}
 
 	private openCardMenu(event: MouseEvent, item: MediaItem) {

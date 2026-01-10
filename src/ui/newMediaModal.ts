@@ -3,6 +3,7 @@ import MediaTrackerPlugin from "../main";
 import {MediaStatus, MediaType, NewMediaDraft} from "../types";
 import {MEDIA_STATUS_LABELS, MEDIA_TYPE_LABELS} from "../utils/media";
 import {createMediaNote} from "../utils/notes";
+import {NEW_MEDIA_BASE_FIELDS, NEW_MEDIA_TYPE_FIELDS, type NewMediaFieldConfig} from "./newMediaForm";
 
 export class NewMediaModal extends Modal {
 	plugin: MediaTrackerPlugin;
@@ -26,13 +27,7 @@ export class NewMediaModal extends Modal {
 		contentEl.empty();
 		contentEl.addClass("media-tracker__modal");
 		contentEl.createEl("h2", {text: "Create media note"});
-
-		new Setting(contentEl)
-			.setName("Title")
-			.addText((text) => text
-				.setPlaceholder("Title")
-				.setValue(this.draft.title)
-				.onChange((value) => this.draft.title = value));
+		this.renderFields(contentEl, NEW_MEDIA_BASE_FIELDS);
 
 		new Setting(contentEl)
 			.setName("Type")
@@ -59,15 +54,13 @@ export class NewMediaModal extends Modal {
 				dropdown.onChange((value) => this.draft.status = value as MediaStatus);
 			});
 
-		if (this.draft.type === "novel") {
-			this.renderNovelFields(contentEl);
-		}
-		if (this.draft.type === "series") {
-			this.renderSeriesFields(contentEl);
-		}
-		if (this.draft.type === "movie") {
-			this.renderMovieFields(contentEl);
-		}
+		const sectionLabels: Record<MediaType, string> = {
+			novel: "Novel details",
+			series: "Series details",
+			movie: "Movie details",
+		};
+		contentEl.createEl("h3", {text: sectionLabels[this.draft.type]});
+		this.renderFields(contentEl, NEW_MEDIA_TYPE_FIELDS[this.draft.type]);
 
 		const actions = contentEl.createDiv({cls: "media-tracker__modal-actions"});
 		const createButton = actions.createEl("button", {text: "Create note", cls: "media-tracker__button"});
@@ -77,81 +70,29 @@ export class NewMediaModal extends Modal {
 		});
 	}
 
-	private renderNovelFields(container: HTMLElement) {
-		container.createEl("h3", {text: "Novel details"});
-		new Setting(container)
-			.setName("Author")
-			.addText((text) => text
-				.setValue(this.draft.author ?? "")
-				.onChange((value) => this.draft.author = value));
-
-		new Setting(container)
-			.setName("Progress")
-			.setDesc("Chapter, volume, or other progress note.")
-			.addText((text) => text
-				.setValue(this.draft.progress ?? "")
-				.onChange((value) => this.draft.progress = value));
-
-		new Setting(container)
-			.setName("Patreon URL")
-			.addText((text) => text
-				.setPlaceholder("https://www.patreon.com/creator")
-				.setValue(this.draft.patreon ?? "")
-				.onChange((value) => this.draft.patreon = value));
-
-		new Setting(container)
-			.setName("Kemono URL")
-			.addText((text) => text
-				.setPlaceholder("https://kemono.su/creator")
-				.setValue(this.draft.kemono ?? "")
-				.onChange((value) => this.draft.kemono = value));
-
-		new Setting(container)
-			.setName("RoyalRoad URL")
-			.addText((text) => text
-				.setPlaceholder("https://www.royalroad.com/fiction/12345")
-				.setValue(this.draft.royalroad ?? "")
-				.onChange((value) => this.draft.royalroad = value));
+	private renderFields(container: HTMLElement, fields: NewMediaFieldConfig[]) {
+		for (const field of fields) {
+			const setting = new Setting(container).setName(field.label);
+			if (field.description) {
+				setting.setDesc(field.description);
+			}
+			setting.addText((text) => {
+				if (field.placeholder) {
+					text.setPlaceholder(field.placeholder);
+				}
+				if (field.inputType) {
+					text.inputEl.type = field.inputType;
+				}
+				text.setValue((this.draft[field.key] ?? "") as string);
+				text.onChange((value) => this.updateDraftField(field.key, value));
+			});
+		}
 	}
 
-	private renderSeriesFields(container: HTMLElement) {
-		container.createEl("h3", {text: "Series details"});
-		new Setting(container)
-			.setName("Season")
-			.addText((text) => text
-				.setPlaceholder("2")
-				.setValue(this.draft.season ?? "")
-				.onChange((value) => this.draft.season = value));
-
-		new Setting(container)
-			.setName("Episode")
-			.addText((text) => text
-				.setPlaceholder("5")
-				.setValue(this.draft.episode ?? "")
-				.onChange((value) => this.draft.episode = value));
-
-		new Setting(container)
-			.setName("IMDB ID or URL")
-			.addText((text) => text
-				.setPlaceholder("tt1234567")
-				.setValue(this.draft.imdb ?? "")
-				.onChange((value) => this.draft.imdb = value));
-	}
-
-	private renderMovieFields(container: HTMLElement) {
-		container.createEl("h3", {text: "Movie details"});
-		new Setting(container)
-			.setName("Year")
-			.addText((text) => text
-				.setPlaceholder("2024")
-				.setValue(this.draft.year ?? "")
-				.onChange((value) => this.draft.year = value));
-
-		new Setting(container)
-			.setName("IMDB ID or URL")
-			.addText((text) => text
-				.setPlaceholder("tt1234567")
-				.setValue(this.draft.imdb ?? "")
-				.onChange((value) => this.draft.imdb = value));
+	private updateDraftField(key: keyof NewMediaDraft, value: string) {
+		this.draft = {
+			...this.draft,
+			[key]: value,
+		};
 	}
 }
