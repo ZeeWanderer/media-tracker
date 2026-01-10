@@ -1,6 +1,7 @@
 import {MEDIA_STATUS_LABELS, MEDIA_TYPE_LABELS} from "../utils/media";
 import {NEW_MEDIA_BASE_FIELDS, NEW_MEDIA_TYPE_FIELDS} from "../ui/newMediaForm";
-import {getIconBaseName, renderCard, renderTableHeader, renderTableRow, type MediaItemLike, type RenderHandlers, type SortDirection, type SortKey} from "../ui/trackerRenderer";
+import {getKnownIconAsset} from "../utils/links";
+import {renderCard, renderTableHeader, renderTableRow, type MediaItemLike, type RenderHandlers, type SortDirection, type SortKey} from "../ui/trackerRenderer";
 
 type PreviewPayload = {
 	items?: MediaItemLike[];
@@ -30,20 +31,9 @@ const handlers: RenderHandlers = {
 	onProgressEdit: () => {},
 	onProgressAdvance: () => {},
 	onLinkOpen: () => {},
-	getIconUrl: (label) => {
-		const base = getIconBaseName(label);
-		if (!base) {
-			return null;
-		}
-		const ext = label === "IMDB" ? "png" : "ico";
-		return `../assets/${base}.${ext}`;
-	},
-	getIconFallbackUrl: (label, currentUrl) => {
-		const base = getIconBaseName(label);
-		if (!base || !currentUrl.endsWith(".ico")) {
-			return null;
-		}
-		return `../assets/${base}.png`;
+	getLinkIconUrl: (value) => {
+		const asset = getKnownIconAsset(value);
+		return asset ? `../assets/${asset}` : null;
 	},
 };
 
@@ -86,6 +76,31 @@ if (newNoteContainer) {
 	for (const field of NEW_MEDIA_TYPE_FIELDS.series) {
 		modal.appendChild(createSettingText(field.label, field.placeholder ?? "", field.description));
 	}
+
+	const linksTitle = document.createElement("h3");
+	linksTitle.textContent = "Links";
+	modal.appendChild(linksTitle);
+
+	const imdbRow = document.createElement("div");
+	imdbRow.className = "media-tracker__link-row";
+	const imdbInput = document.createElement("input");
+	imdbInput.type = "text";
+	imdbInput.placeholder = "IMDB ID or URL";
+	imdbRow.appendChild(imdbInput);
+	const imdbHint = document.createElement("div");
+	imdbHint.className = "media-tracker__link-hint";
+	imdbHint.textContent = "IMDB";
+	imdbRow.appendChild(imdbHint);
+	modal.appendChild(imdbRow);
+
+	const linksList = document.createElement("div");
+	linksList.className = "media-tracker__links-list";
+	modal.appendChild(linksList);
+
+	const addLink = document.createElement("button");
+	addLink.className = "media-tracker__button media-tracker__link-add";
+	addLink.textContent = "Add link";
+	modal.appendChild(addLink);
 
 	const actions = document.createElement("div");
 	actions.className = "media-tracker__modal-actions";

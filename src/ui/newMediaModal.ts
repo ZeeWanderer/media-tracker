@@ -4,6 +4,7 @@ import {MediaStatus, MediaType, NewMediaDraft} from "../types";
 import {MEDIA_STATUS_LABELS, MEDIA_TYPE_LABELS} from "../utils/media";
 import {createMediaNote} from "../utils/notes";
 import {NEW_MEDIA_BASE_FIELDS, NEW_MEDIA_TYPE_FIELDS, type NewMediaFieldConfig} from "./newMediaForm";
+import {extractImdbId} from "../utils/links";
 
 export class NewMediaModal extends Modal {
 	plugin: MediaTrackerPlugin;
@@ -11,6 +12,7 @@ export class NewMediaModal extends Modal {
 		title: "",
 		type: "novel",
 		status: "planned",
+		links: [],
 	};
 
 	constructor(plugin: MediaTrackerPlugin) {
@@ -62,6 +64,8 @@ export class NewMediaModal extends Modal {
 		contentEl.createEl("h3", {text: sectionLabels[this.draft.type]});
 		this.renderFields(contentEl, NEW_MEDIA_TYPE_FIELDS[this.draft.type]);
 
+		this.renderLinks(contentEl);
+
 		const actions = contentEl.createDiv({cls: "media-tracker__modal-actions"});
 		const createButton = actions.createEl("button", {text: "Create note", cls: "media-tracker__button"});
 		createButton.addEventListener("click", async () => {
@@ -87,6 +91,92 @@ export class NewMediaModal extends Modal {
 				text.onChange((value) => this.updateDraftField(field.key, value));
 			});
 		}
+	}
+
+	private renderLinks(container: HTMLElement) {
+		const section = container.createDiv({cls: "media-tracker__links-section"});
+		section.createEl("h3", {text: "Links"});
+
+		if (this.shouldShowImdbField()) {
+			const imdbRow = section.createDiv({cls: "media-tracker__link-row"});
+			const imdbInput = imdbRow.createEl("input");
+			imdbInput.type = "text";
+			imdbInput.placeholder = "IMDB ID or URL";
+			imdbInput.value = this.draft.imdbId ?? "";
+			imdbInput.addEventListener("input", () => {
+				this.updateImdbId(imdbInput.value);
+			});
+			const imdbHint = imdbRow.createDiv({cls: "media-tracker__link-hint", text: "IMDB"});
+			imdbHint.setAttribute("aria-hidden", "true");
+		}
+
+		const list = section.createDiv({cls: "media-tracker__links-list"});
+		const links = [...(this.draft.links ?? [])];
+
+		links.forEach((value, index) => {
+			const row = list.createDiv({cls: "media-tracker__link-row"});
+			const input = row.createEl("input");
+			input.type = "text";
+			input.placeholder = "https://example.com";
+			input.value = value;
+			input.addEventListener("input", () => {
+				this.updateLink(index, input.value);
+			});
+
+			const remove = row.createEl("button", {cls: "media-tracker__link-remove", text: "Remove"});
+			remove.type = "button";
+			remove.setAttr("aria-label", "Remove link");
+			remove.addEventListener("click", () => {
+				this.removeLink(index);
+			});
+		});
+
+		const addButton = section.createEl("button", {cls: "media-tracker__button media-tracker__link-add", text: "Add link"});
+		addButton.addEventListener("click", () => {
+			this.addLink();
+		});
+	}
+
+	private shouldShowImdbField(): boolean {
+		return this.draft.type === "series" || this.draft.type === "movie";
+	}
+
+	private updateImdbId(value: string) {
+		const trimmed = value.trim();
+		const imdbId = trimmed.length ? (extractImdbId(trimmed) ?? trimmed) : "";
+		this.draft = {
+			...this.draft,
+			imdbId: imdbId || undefined,
+		};
+	}
+
+	private updateLink(index: number, value: string) {
+		const links = [...(this.draft.links ?? [])];
+		links[index] = value;
+		this.draft = {
+			...this.draft,
+			links,
+		};
+	}
+
+	private addLink() {
+		const links = [...(this.draft.links ?? [])];
+		links.push("");
+		this.draft = {
+			...this.draft,
+			links,
+		};
+		this.render();
+	}
+
+	private removeLink(index: number) {
+		const links = [...(this.draft.links ?? [])];
+		links.splice(index, 1);
+		this.draft = {
+			...this.draft,
+			links,
+		};
+		this.render();
 	}
 
 	private updateDraftField(key: keyof NewMediaDraft, value: string) {

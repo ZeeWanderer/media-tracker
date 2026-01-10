@@ -3,10 +3,13 @@ import MediaTrackerPlugin from "../main";
 import {MediaItem, MediaStatus, MediaType} from "../types";
 import {MEDIA_STATUS_LABELS, MEDIA_TYPE_LABELS, getMediaItems, getTitleSortKey} from "../utils/media";
 import {NewMediaModal} from "./newMediaModal";
-import {setCustomLink, setMediaLink, setNovelProgress, setSeriesProgress} from "../utils/notes";
+import {addMediaLink, setNovelProgress, setSeriesProgress} from "../utils/notes";
 import {LinkModal} from "./linkModal";
 import {refreshAllSeries, refreshSeriesLatest} from "../utils/tmdb";
-import {getIconBaseName, renderCard, renderTableHeader, renderTableRow, type RenderHandlers, type SortDirection, type SortKey} from "./trackerRenderer";
+import {renderCard, renderTableHeader, renderTableRow, type RenderHandlers, type SortDirection, type SortKey} from "./trackerRenderer";
+import {collectLinks, getKnownIconAsset, setLinks} from "../utils/links";
+import {fetchFaviconDataUrl, getCachedFavicon, getFaviconCacheKey} from "../utils/favicon";
+import {migrateFrontmatter} from "../utils/migration";
 
 export const MEDIA_TRACKER_VIEW = "media-tracker-view";
 
@@ -23,6 +26,7 @@ export class MediaTrackerView extends ItemView {
 	private searchQuery = "";
 	private sortKey: SortKey = "title";
 	private sortDirection: SortDirection = "asc";
+	private faviconInflight = new Set<string>();
 
 	constructor(leaf: WorkspaceLeaf, plugin: MediaTrackerPlugin) {
 		super(leaf);
@@ -90,12 +94,19 @@ export class MediaTrackerView extends ItemView {
 				return;
 			}
 			const items = getMediaItems(this.app, this.plugin.settings);
+			let changed = 0;
 			for (const item of items) {
+				let modified = false;
 				await this.app.fileManager.processFrontMatter(item.file, (frontmatter) => {
+					const before = JSON.stringify(frontmatter);
 					this.pruneFrontmatter(frontmatter);
+					modified = JSON.stringify(frontmatter) != before;
 				});
+				if (modified) {
+					changed += 1;
+				}
 			}
-			new Notice(`Cleaned frontmatter for ${items.length} media notes.`);
+			new Notice(`Cleaned ${changed} of ${items.length} media notes.`);
 			this.render();
 		});
 		const addButton = actions.createEl("button", {cls: "media-tracker__button", text: "New entry"});
@@ -116,6 +127,8 @@ export class MediaTrackerView extends ItemView {
 			.filter((item) => this.matchesFilters(item))
 			.filter((item) => this.matchesSearch(item));
 		const sorted = this.displayMode === "details" ? this.sortItems(filtered) : filtered;
+
+		void this.ensureFavicons(filtered);
 
 		if (filtered.length === 0) {
 			const empty = contentEl.createDiv({cls: "media-tracker__empty"});
@@ -243,6 +256,7 @@ export class MediaTrackerView extends ItemView {
 				const fullItem = item as MediaItem;
 				await this.app.fileManager.processFrontMatter(fullItem.file, (frontmatter) => {
 					frontmatter.status = status;
+					migrateFrontmatter(frontmatter);
 				});
 			},
 			onProgressEdit: (target, item) => {
@@ -259,24 +273,13 @@ export class MediaTrackerView extends ItemView {
 			onLinkOpen: (url) => {
 				window.open(url, "_blank", "noopener");
 			},
-			getIconUrl: (label) => {
-				const base = getIconBaseName(label);
-				if (!base) {
-					return null;
+			getLinkIconUrl: (value) => {
+				const asset = getKnownIconAsset(value);
+				if (asset) {
+					return this.getAssetUrl(asset);
 				}
-				const ext = label === "IMDB" ? "png" : "ico";
-				return this.getAssetUrl(`${base}.${ext}`);
-			},
-			getIconFallbackUrl: (label, currentUrl) => {
-				const base = getIconBaseName(label);
-				if (!base) {
-					return null;
-				}
-				const cleanUrl = currentUrl.split("?")[0] ?? currentUrl;
-				if (!cleanUrl.endsWith(".ico")) {
-					return null;
-				}
-				return this.getAssetUrl(`${base}.png`);
+				const cached = getCachedFavicon(this.plugin.settings, value);
+				return cached ?? null;
 			},
 		};
 	}
@@ -327,33 +330,6 @@ export class MediaTrackerView extends ItemView {
 		path.setAttribute("fill", "currentColor");
 		svg.appendChild(path);
 		return svg;
-	}
-
-	private renderStatusSelect(item: MediaItem, currentLabel: string): HTMLElement {
-		const wrapper = document.createElement("div");
-		wrapper.classList.add("media-tracker__status");
-		const select = document.createElement("select");
-		select.classList.add("media-tracker__status-select");
-		for (const option of STATUS_FILTERS) {
-			if (option === "all") {
-				continue;
-			}
-			const label = MEDIA_STATUS_LABELS[option as MediaStatus];
-			const optionEl = document.createElement("option");
-			optionEl.value = option;
-			optionEl.textContent = label;
-			if (label === currentLabel) {
-				optionEl.selected = true;
-			}
-			select.appendChild(optionEl);
-		}
-		select.addEventListener("change", async () => {
-			await this.app.fileManager.processFrontMatter(item.file, (frontmatter) => {
-				frontmatter.status = select.value;
-			});
-		});
-		wrapper.appendChild(select);
-		return wrapper;
 	}
 
 	private openProgressEditor(target: HTMLElement, item: MediaItem) {
@@ -458,11 +434,6 @@ export class MediaTrackerView extends ItemView {
 		return item.progress ?? "";
 	}
 
-	private getAssetUrl(fileName: string): string {
-		const pluginDir = `${this.app.vault.configDir}/plugins/${this.plugin.manifest.id}`;
-		return this.app.vault.adapter.getResourcePath(`${pluginDir}/assets/${fileName}`);
-	}
-
 	private pruneFrontmatter(frontmatter: Record<string, unknown>) {
 		const hasSeasonEpisodes = (value: unknown): boolean => {
 			if (!value) {
@@ -497,13 +468,6 @@ export class MediaTrackerView extends ItemView {
 			delete frontmatter.royalRoad;
 		}
 
-		if (frontmatter.imdbId && !frontmatter.imdb) {
-			frontmatter.imdb = frontmatter.imdbId;
-		}
-		if (frontmatter.imdbId) {
-			delete frontmatter.imdbId;
-		}
-
 		if (frontmatter.chapter && !frontmatter.progress) {
 			frontmatter.progress = frontmatter.chapter;
 		}
@@ -517,11 +481,12 @@ export class MediaTrackerView extends ItemView {
 			delete frontmatter.tmdbLatestEpisode;
 		}
 
-		const links = frontmatter.links;
-		if (links && typeof links === "object" && !Array.isArray(links)) {
-			if (Object.keys(links as Record<string, unknown>).length === 0) {
-				delete frontmatter.links;
-			}
+		const links = collectLinks(frontmatter);
+		setLinks(frontmatter, links);
+		migrateFrontmatter(frontmatter);
+
+		if (frontmatter.links && Array.isArray(frontmatter.links) && frontmatter.links.length === 0) {
+			delete frontmatter.links;
 		}
 	}
 
@@ -543,47 +508,16 @@ export class MediaTrackerView extends ItemView {
 			menu.addSeparator();
 		}
 
-		const addLink = (label: string, key: "patreon" | "kemono" | "royalroad" | "imdb" | "hdrezka") => {
-			new LinkModal(this.app, {
-				title: `Set ${label} link`,
-				onSubmit: async (_, url) => {
-					await setMediaLink(this.app, item.file, key, url);
-				},
-			}).open();
-		};
-
-		const linkMenu = new Menu();
-		linkMenu.addItem((itemMenu) => itemMenu
-			.setTitle("Back")
-			.setIcon("arrow-left")
-			.onClick(() => {
-				this.openCardMenu(event, item);
-			}));
-		linkMenu.addSeparator();
-		if (item.type === "novel") {
-			linkMenu.addItem((itemMenu) => itemMenu.setTitle("Set Patreon link").onClick(() => addLink("Patreon", "patreon")));
-			linkMenu.addItem((itemMenu) => itemMenu.setTitle("Set Kemono link").onClick(() => addLink("Kemono", "kemono")));
-			linkMenu.addItem((itemMenu) => itemMenu.setTitle("Set RoyalRoad link").onClick(() => addLink("RoyalRoad", "royalroad")));
-		} else {
-			linkMenu.addItem((itemMenu) => itemMenu.setTitle("Set IMDB link").onClick(() => addLink("IMDB", "imdb")));
-			linkMenu.addItem((itemMenu) => itemMenu.setTitle("Set HDRezka link").onClick(() => addLink("HDRezka", "hdrezka")));
-		}
-		linkMenu.addSeparator();
-		linkMenu.addItem((itemMenu) => itemMenu.setTitle("Add custom link").onClick(() => {
-			new LinkModal(this.app, {
-				title: "Add custom link",
-				showLabel: true,
-				onSubmit: async (label, url) => {
-					await setCustomLink(this.app, item.file, label, url);
-				},
-			}).open();
-		}));
-
 		menu.addItem((itemMenu) => {
-			itemMenu.setTitle("Links →");
+			itemMenu.setTitle("Add link");
 			itemMenu.setIcon("link");
 			itemMenu.onClick(() => {
-				linkMenu.showAtMouseEvent(event);
+				new LinkModal(this.app, {
+					title: "Add link",
+					onSubmit: async (url) => {
+						await addMediaLink(this.app, item.file, url);
+					},
+				}).open();
 			});
 		});
 
@@ -600,5 +534,45 @@ export class MediaTrackerView extends ItemView {
 			}));
 
 		menu.showAtMouseEvent(event);
+	}
+
+	private async ensureFavicons(items: MediaItem[]) {
+		const cache = this.plugin.settings.faviconCache ?? {};
+		for (const item of items) {
+			for (const link of item.links ?? []) {
+				if (getKnownIconAsset(link)) {
+					continue;
+				}
+				const key = getFaviconCacheKey(link);
+				if (!key || cache[key] || this.faviconInflight.has(key)) {
+					continue;
+				}
+				this.faviconInflight.add(key);
+				void this.fetchAndStoreFavicon(link);
+			}
+		}
+	}
+
+	private async fetchAndStoreFavicon(link: string) {
+		const result = await fetchFaviconDataUrl(link);
+		const key = result?.key;
+		if (key) {
+			this.plugin.settings.faviconCache = {
+				...this.plugin.settings.faviconCache,
+				[key]: {dataUrl: result.dataUrl, updated: Date.now()},
+			};
+			await this.plugin.saveSettings();
+			this.render();
+			this.faviconInflight.delete(key);
+			return;
+		}
+		if (key) {
+			this.faviconInflight.delete(key);
+		}
+	}
+
+	private getAssetUrl(fileName: string): string {
+		const pluginDir = `${this.app.vault.configDir}/plugins/${this.plugin.manifest.id}`;
+		return this.app.vault.adapter.getResourcePath(`${pluginDir}/assets/${fileName}`);
 	}
 }

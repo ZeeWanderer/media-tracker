@@ -1,6 +1,7 @@
 import {App, TFile} from "obsidian";
 import {MediaItem, MediaStatus, MediaType} from "../types";
 import {MediaTrackerSettings} from "../settings";
+import {collectLinks, getImdbIdFromFrontmatter, getImdbIdFromLinks} from "./links";
 
 const MEDIA_TYPES: MediaType[] = ["novel", "series", "movie"];
 const MEDIA_STATUSES: MediaStatus[] = ["planned", "active", "completed", "on-hold", "dropped"];
@@ -28,33 +29,6 @@ function normalizeType(value: unknown): MediaType | null {
 function normalizeStatus(value: unknown): MediaStatus {
 	const raw = normalizeString(value)?.toLowerCase();
 	return MEDIA_STATUSES.find((status) => status === raw) ?? "planned";
-}
-
-function normalizeLink(value: unknown): string | null {
-	const raw = normalizeString(value);
-	if (!raw) {
-		return null;
-	}
-	if (raw.startsWith("http://") || raw.startsWith("https://")) {
-		return raw;
-	}
-	if (raw.startsWith("tt")) {
-		return `https://www.imdb.com/title/${raw}/`;
-	}
-	return raw;
-}
-
-function extractExtraLinks(frontmatter: Record<string, unknown>): Array<{label: string; url: string}> {
-	const raw = frontmatter.links;
-	if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
-		return [];
-	}
-	return Object.entries(raw as Record<string, unknown>)
-		.map(([label, value]) => {
-			const url = normalizeLink(value);
-			return url ? {label, url} : null;
-		})
-		.filter((entry): entry is {label: string; url: string} => entry !== null);
 }
 
 function buildProgress(type: MediaType, frontmatter: Record<string, unknown>): string | undefined {
@@ -106,6 +80,8 @@ function parseMediaItem(file: TFile, app: App): MediaItem | null {
 	const tmdbSeasonEpisodes = parseSeasonEpisodes(frontmatter.tmdbSeasonEpisodes);
 	const tmdbLatestAirDate = normalizeString(frontmatter.tmdbLatestAirDate);
 	const tmdbLatestName = normalizeString(frontmatter.tmdbLatestName);
+	const links = collectLinks(frontmatter);
+	const imdbId = getImdbIdFromFrontmatter(frontmatter) ?? getImdbIdFromLinks(links);
 
 	return {
 		file,
@@ -119,14 +95,8 @@ function parseMediaItem(file: TFile, app: App): MediaItem | null {
 		season: season ? Number(season) : undefined,
 		episode: episode ? Number(episode) : undefined,
 		year: year ? Number(year) : undefined,
-		links: {
-			patreon: normalizeLink(frontmatter.patreon),
-			kemono: normalizeLink(frontmatter.kemono),
-			royalroad: normalizeLink(frontmatter.royalroad ?? frontmatter.royalRoad),
-			imdb: normalizeLink(frontmatter.imdb ?? frontmatter.imdbId),
-			hdrezka: normalizeLink(frontmatter.hdrezka),
-		},
-		extraLinks: extractExtraLinks(frontmatter),
+		links,
+		imdbId,
 		tmdbId: tmdbId ? Number(tmdbId) : undefined,
 		tmdbLastChecked: tmdbLastChecked ? Number(tmdbLastChecked) : undefined,
 		tmdbLatestSeason: tmdbLatestSeason ? Number(tmdbLatestSeason) : undefined,

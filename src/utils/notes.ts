@@ -1,6 +1,8 @@
 import {App, Notice} from "obsidian";
 import {MediaTrackerSettings} from "../settings";
 import {NewMediaDraft} from "../types";
+import {collectLinks, filterImdbLinks, getImdbIdFromLinks, normalizeLinks, normalizeStoredLink, setLinks} from "./links";
+import {CURRENT_MEDIA_VERSION, migrateFrontmatter} from "./migration";
 
 function sanitizeFileName(name: string): string {
 	return name
@@ -35,6 +37,7 @@ export function buildFrontmatter(draft: NewMediaDraft): string {
 	const lines: string[] = [];
 	lines.push("---");
 	lines.push(`type: ${draft.type}`);
+	lines.push(`mediaTrackerVersion: ${CURRENT_MEDIA_VERSION}`);
 	pushLine(lines, "title", draft.title);
 	pushLine(lines, "status", draft.status);
 	pushLine(lines, "author", draft.author);
@@ -42,10 +45,19 @@ export function buildFrontmatter(draft: NewMediaDraft): string {
 	pushLine(lines, "season", draft.season);
 	pushLine(lines, "episode", draft.episode);
 	pushLine(lines, "year", draft.year);
-	pushLine(lines, "patreon", draft.patreon);
-	pushLine(lines, "kemono", draft.kemono);
-	pushLine(lines, "royalroad", draft.royalroad);
-	pushLine(lines, "imdb", draft.imdb);
+
+	const normalizedLinks = normalizeLinks(draft.links ?? []);
+	const imdbId = draft.imdbId ?? getImdbIdFromLinks(normalizedLinks);
+	pushLine(lines, "imdbId", imdbId);
+	const storedLinks = filterImdbLinks(normalizedLinks);
+
+	if (storedLinks.length) {
+		lines.push("links:");
+		for (const link of storedLinks) {
+			lines.push(`  - ${formatYamlString(link)}`);
+		}
+	}
+
 	lines.push("---");
 	lines.push("");
 	return lines.join("\n");
@@ -94,6 +106,7 @@ export async function setNovelProgress(app: App, file: import("obsidian").TFile,
 			delete frontmatter.progress;
 			delete frontmatter.progressLabel;
 			delete frontmatter.progressUnit;
+			migrateFrontmatter(frontmatter);
 			return;
 		}
 
@@ -104,10 +117,12 @@ export async function setNovelProgress(app: App, file: import("obsidian").TFile,
 			frontmatter.progress = numeric;
 			frontmatter.progressUnit = "ch";
 			delete frontmatter.progressLabel;
+			migrateFrontmatter(frontmatter);
 			return;
 		}
 
 		frontmatter.progressLabel = trimmed;
+		migrateFrontmatter(frontmatter);
 	});
 }
 
@@ -120,6 +135,7 @@ export async function setSeriesProgress(app: App, file: import("obsidian").TFile
 		if (!trimmed.length) {
 			delete frontmatter.season;
 			delete frontmatter.episode;
+			migrateFrontmatter(frontmatter);
 			return;
 		}
 
@@ -131,53 +147,28 @@ export async function setSeriesProgress(app: App, file: import("obsidian").TFile
 		}
 		frontmatter.season = Number.parseInt(match[1], 10);
 		frontmatter.episode = Number.parseInt(match[2], 10);
+		migrateFrontmatter(frontmatter);
 	});
 }
 
-export async function setMediaLink(
+export async function addMediaLink(
 	app: App,
 	file: import("obsidian").TFile,
-	key: "patreon" | "kemono" | "royalroad" | "imdb" | "hdrezka",
 	url: string,
 ) {
-	const trimmed = url.trim();
-	await app.fileManager.processFrontMatter(file, (frontmatter) => {
-		if (!frontmatter) {
-			return;
-		}
-		if (!trimmed.length) {
-			delete frontmatter[key];
-			return;
-		}
-		frontmatter[key] = trimmed;
-	});
-}
-
-export async function setCustomLink(
-	app: App,
-	file: import("obsidian").TFile,
-	label: string,
-	url: string,
-) {
-	const trimmedLabel = label.trim();
-	const trimmedUrl = url.trim();
-	if (!trimmedLabel.length) {
+	const normalized = normalizeStoredLink(url);
+	if (!normalized) {
 		return;
 	}
 	await app.fileManager.processFrontMatter(file, (frontmatter) => {
 		if (!frontmatter) {
 			return;
 		}
-		const links = frontmatter.links;
-		if (!trimmedUrl.length) {
-			if (links && typeof links === "object" && !Array.isArray(links)) {
-				delete (links as Record<string, unknown>)[trimmedLabel];
-			}
-			return;
+		const links = collectLinks(frontmatter);
+		if (!links.includes(normalized)) {
+			links.push(normalized);
 		}
-		if (!links || typeof links !== "object" || Array.isArray(links)) {
-			frontmatter.links = {};
-		}
-		(frontmatter.links as Record<string, unknown>)[trimmedLabel] = trimmedUrl;
+		setLinks(frontmatter, links);
+		migrateFrontmatter(frontmatter);
 	});
 }

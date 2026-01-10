@@ -4,6 +4,7 @@ import fs from "node:fs/promises";
 
 const MEDIA_TYPES = ["novel", "series", "movie"];
 const MEDIA_STATUSES = ["planned", "active", "completed", "on-hold", "dropped"];
+const LEGACY_LINK_FIELDS = ["patreon", "kemono", "royalroad", "royalRoad", "imdb", "hdrezka"];
 
 function normalizeString(value) {
 	if (typeof value === "string") {
@@ -30,18 +31,79 @@ function normalizeStatus(value) {
 	return MEDIA_STATUSES.find((status) => status === raw) ?? "planned";
 }
 
-function normalizeLink(value) {
+function extractImdbId(value) {
+	const match = value.match(/tt\d{7,}/i);
+	if (!match) {
+		return null;
+	}
+	return match[0].toLowerCase();
+}
+
+function normalizeStoredLink(value) {
 	const raw = normalizeString(value);
 	if (!raw) {
 		return null;
 	}
-	if (raw.startsWith("http://") || raw.startsWith("https://")) {
-		return raw;
-	}
-	if (raw.startsWith("tt")) {
-		return `https://www.imdb.com/title/${raw}/`;
+	const imdbId = extractImdbId(raw);
+	if (imdbId) {
+		return imdbId;
 	}
 	return raw;
+}
+
+function normalizeLinks(values) {
+	const links = [];
+	for (const value of values) {
+		const normalized = normalizeStoredLink(value);
+		if (!normalized) {
+			continue;
+		}
+		if (!links.includes(normalized)) {
+			links.push(normalized);
+		}
+	}
+	return links;
+}
+
+function getImdbIdFromFrontmatter(frontmatter) {
+	const raw = typeof frontmatter.imdbId === "string"
+		? frontmatter.imdbId
+		: typeof frontmatter.imdb === "string"
+			? frontmatter.imdb
+			: undefined;
+	if (!raw) {
+		return undefined;
+	}
+	return extractImdbId(raw) ?? raw;
+}
+
+function collectLinks(frontmatter) {
+	const links = [];
+	const rawLinks = frontmatter.links;
+	if (Array.isArray(rawLinks)) {
+		for (const entry of rawLinks) {
+			if (typeof entry === "string") {
+				links.push(entry);
+			}
+		}
+	} else if (rawLinks && typeof rawLinks === "object") {
+		for (const value of Object.values(rawLinks)) {
+			if (typeof value === "string") {
+				links.push(value);
+			}
+		}
+	}
+	for (const key of LEGACY_LINK_FIELDS) {
+		const value = frontmatter[key];
+		if (typeof value === "string") {
+			links.push(value);
+		}
+	}
+	const imdbId = getImdbIdFromFrontmatter(frontmatter);
+	if (imdbId) {
+		links.push(imdbId);
+	}
+	return normalizeLinks(links);
 }
 
 function getTitleSortKey(title) {
@@ -95,7 +157,7 @@ function parseFrontmatter(content) {
 	}
 	const lines = match[1].split(/\r?\n/);
 	const frontmatter = {};
-	const links = {};
+	const links = [];
 	let inLinks = false;
 	for (const line of lines) {
 		if (!line.trim()) {
@@ -105,12 +167,19 @@ function parseFrontmatter(content) {
 			inLinks = false;
 		}
 		if (inLinks) {
-			const matchLine = line.match(/^\s+([^:]+):\s*(.*)$/);
-			if (matchLine) {
-				const key = matchLine[1].trim();
-				const value = parseValue(matchLine[2]);
+			const listMatch = line.match(/^\s+-\s*(.*)$/);
+			if (listMatch) {
+				const value = parseValue(listMatch[1]);
 				if (value) {
-					links[key] = value;
+					links.push(value);
+				}
+				continue;
+			}
+			const mapMatch = line.match(/^\s+[^:]+:\s*(.*)$/);
+			if (mapMatch) {
+				const value = parseValue(mapMatch[1]);
+				if (value) {
+					links.push(value);
 				}
 			}
 			continue;
@@ -128,23 +197,10 @@ function parseFrontmatter(content) {
 		}
 		frontmatter[key] = value;
 	}
-	if (Object.keys(links).length) {
+	if (links.length) {
 		frontmatter.links = links;
 	}
 	return frontmatter;
-}
-
-function extractExtraLinks(frontmatter) {
-	const raw = frontmatter.links;
-	if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
-		return [];
-	}
-	return Object.entries(raw)
-		.map(([label, value]) => {
-			const url = normalizeLink(value);
-			return url ? {label, url} : null;
-		})
-		.filter((entry) => entry !== null);
 }
 
 function parseMediaItem(filePath, frontmatter) {
@@ -164,6 +220,7 @@ function parseMediaItem(filePath, frontmatter) {
 	const tmdbLatestEpisode = normalizeString(frontmatter.tmdbLatestEpisode);
 	const tmdbLatestAirDate = normalizeString(frontmatter.tmdbLatestAirDate);
 	const tmdbLatestName = normalizeString(frontmatter.tmdbLatestName);
+	const imdbId = getImdbIdFromFrontmatter(frontmatter);
 
 	return {
 		title,
@@ -174,14 +231,8 @@ function parseMediaItem(filePath, frontmatter) {
 		season: season ? Number(season) : undefined,
 		episode: episode ? Number(episode) : undefined,
 		year: year ? Number(year) : undefined,
-		links: {
-			patreon: normalizeLink(frontmatter.patreon),
-			kemono: normalizeLink(frontmatter.kemono),
-			royalroad: normalizeLink(frontmatter.royalroad ?? frontmatter.royalRoad),
-			imdb: normalizeLink(frontmatter.imdb ?? frontmatter.imdbId),
-			hdrezka: normalizeLink(frontmatter.hdrezka),
-		},
-		extraLinks: extractExtraLinks(frontmatter),
+		links: collectLinks(frontmatter),
+		imdbId,
 		tmdbId: tmdbId ? Number(tmdbId) : undefined,
 		tmdbLastChecked: tmdbLastChecked ? Number(tmdbLastChecked) : undefined,
 		tmdbLatestSeason: tmdbLatestSeason ? Number(tmdbLatestSeason) : undefined,

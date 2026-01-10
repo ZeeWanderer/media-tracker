@@ -15,14 +15,8 @@ export interface MediaItem {
 	season?: number;
 	episode?: number;
 	year?: number;
-	links: {
-		patreon?: string | null;
-		kemono?: string | null;
-		royalroad?: string | null;
-		imdb?: string | null;
-		hdrezka?: string | null;
-	};
-	extraLinks?: Array<{label: string; url: string}>;
+	links: string[];
+	imdbId?: string;
 	tmdbId?: number;
 	tmdbLastChecked?: number;
 	tmdbLatestSeason?: number;
@@ -42,8 +36,6 @@ export interface NewMediaDraft {
 	season?: string;
 	episode?: string;
 	year?: string;
-	patreon?: string;
-	kemono?: string;
-	royalroad?: string;
-	imdb?: string;
+	imdbId?: string;
+	links: string[];
 }

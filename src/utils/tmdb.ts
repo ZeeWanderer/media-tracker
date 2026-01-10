@@ -1,6 +1,7 @@
 import {App, Notice, requestUrl} from "obsidian";
 import {MediaItem} from "../types";
 import {MediaTrackerSettings} from "../settings";
+import {extractImdbId, getImdbIdFromLinks} from "./links";
 
 const TMDB_BASE = "https://api.themoviedb.org/3";
 
@@ -22,15 +23,6 @@ async function findTmdbIdByImdb(imdbId: string, apiKey: string): Promise<number 
 	type FindResponse = {tv_results?: Array<{id: number}>};
 	const data = await tmdbRequest<FindResponse>(`/find/${encodeURIComponent(imdbId)}?external_source=imdb_id`, apiKey);
 	return data.tv_results?.[0]?.id ?? null;
-}
-
-function extractImdbId(value: string): string | null {
-	const trimmed = value.trim();
-	if (trimmed.startsWith("tt")) {
-		return trimmed;
-	}
-	const match = trimmed.match(/tt\d{7,}/);
-	return match ? match[0] : null;
 }
 
 async function fetchLatestEpisode(tmdbId: number, apiKey: string) {
@@ -166,6 +158,15 @@ async function storeSeriesTmdbId(app: App, file: import("obsidian").TFile, tmdbI
 	});
 }
 
+async function storeSeriesImdbId(app: App, file: import("obsidian").TFile, imdbId: string) {
+	await app.fileManager.processFrontMatter(file, (frontmatter) => {
+		if (!frontmatter) {
+			return;
+		}
+		frontmatter.imdbId = imdbId;
+	});
+}
+
 export async function refreshSeriesLatest(
 	app: App,
 	settings: MediaTrackerSettings,
@@ -176,7 +177,10 @@ export async function refreshSeriesLatest(
 		new Notice("Set a TMDb API key in settings.");
 		return;
 	}
-	if (!item.links.imdb && !item.tmdbId) {
+
+	const linkImdbId = getImdbIdFromLinks(item.links ?? []);
+	const imdbId = item.imdbId ?? linkImdbId;
+	if (!imdbId && !item.tmdbId) {
 		new Notice("Series needs an IMDB ID or TMDb ID.");
 		return;
 	}
@@ -184,16 +188,19 @@ export async function refreshSeriesLatest(
 	const apiKey = settings.tmdbApiKey;
 	try {
 		let tmdbId: number | undefined = item.tmdbId;
-		if (!tmdbId && item.links.imdb) {
-			const imdbId = extractImdbId(item.links.imdb);
-			if (!imdbId) {
+		if (!tmdbId && imdbId) {
+			const normalized = extractImdbId(imdbId);
+			if (!normalized) {
 				new Notice("IMDB ID not found in link.");
 				return;
 			}
-			const found = await findTmdbIdByImdb(imdbId, apiKey);
+			const found = await findTmdbIdByImdb(normalized, apiKey);
 			tmdbId = found ?? undefined;
 			if (tmdbId) {
 				await storeSeriesTmdbId(app, item.file, tmdbId);
+			}
+			if (!item.imdbId) {
+				await storeSeriesImdbId(app, item.file, normalized);
 			}
 		}
 		if (!tmdbId) {

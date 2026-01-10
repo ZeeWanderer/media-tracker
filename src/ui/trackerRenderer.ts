@@ -1,5 +1,6 @@
 import {MediaItem, MediaStatus} from "../types";
 import {MEDIA_STATUS_LABELS, MEDIA_TYPE_LABELS} from "../utils/media";
+import {extractImdbId, formatLinkLabel, getFaviconUrl, toLinkUrl} from "../utils/links";
 
 export type SortKey = "title" | "type" | "status" | "progress";
 export type SortDirection = "asc" | "desc";
@@ -16,7 +17,7 @@ export type MediaItemLike = Pick<
 	| "season"
 	| "episode"
 	| "links"
-	| "extraLinks"
+	| "imdbId"
 	| "tmdbLatestSeason"
 	| "tmdbLatestEpisode"
 	| "tmdbLatestSeasonEpisodes"
@@ -32,23 +33,10 @@ export type RenderHandlers = {
 	onProgressEdit?: (target: HTMLElement, item: MediaItemLike) => void;
 	onProgressAdvance?: (item: MediaItemLike, nextValue: string) => void;
 	onLinkOpen?: (url: string) => void;
-	getIconUrl?: (label: string) => string | null;
-	getIconFallbackUrl?: (label: string, currentUrl: string) => string | null;
+	getLinkIconUrl?: (value: string) => string | null;
 };
 
 const STATUS_OPTIONS: MediaStatus[] = ["planned", "active", "completed", "on-hold", "dropped"];
-
-const ICON_BASE: Record<string, string> = {
-	Patreon: "patreon",
-	Kemono: "kemono",
-	RoyalRoad: "royalroad",
-	HDRezka: "hdrezka",
-	IMDB: "imdb",
-};
-
-export function getIconBaseName(label: string): string | null {
-	return ICON_BASE[label] ?? null;
-}
 
 export function renderTableHeader(
 	sortKey: SortKey,
@@ -320,55 +308,50 @@ function renderLatestBadge(item: MediaItemLike): HTMLElement | null {
 
 function renderLinks(container: HTMLElement, item: MediaItemLike, handlers: RenderHandlers): number {
 	let count = 0;
-	if (item.type === "novel") {
-		count += renderLinkButton(container, "Patreon", item.links.patreon, handlers) ? 1 : 0;
-		count += renderLinkButton(container, "Kemono", item.links.kemono, handlers) ? 1 : 0;
-		count += renderLinkButton(container, "RoyalRoad", item.links.royalroad, handlers) ? 1 : 0;
-	} else {
-		count += renderLinkButton(container, "IMDB", item.links.imdb, handlers) ? 1 : 0;
-		count += renderLinkButton(container, "HDRezka", item.links.hdrezka, handlers) ? 1 : 0;
+	const links = item.links ?? [];
+	for (const link of links) {
+		count += renderLinkButton(container, link, handlers) ? 1 : 0;
 	}
-	for (const extra of item.extraLinks ?? []) {
-		count += renderLinkButton(container, extra.label, extra.url, handlers) ? 1 : 0;
+	const imdbId = item.imdbId;
+	if (imdbId) {
+		const normalized = extractImdbId(imdbId) ?? imdbId;
+		const hasImdb = links.some((link) => extractImdbId(link) === normalized);
+		if (!hasImdb) {
+			count += renderLinkButton(container, normalized, handlers) ? 1 : 0;
+		}
 	}
 	return count;
 }
 
 function renderLinkButton(
 	container: HTMLElement,
-	label: string,
-	url: string | null | undefined,
+	value: string,
 	handlers: RenderHandlers,
 ): boolean {
+	const url = toLinkUrl(value);
 	if (!url) {
 		return false;
 	}
 	const button = document.createElement("button");
-	button.classList.add("media-tracker__button");
+	button.classList.add("media-tracker__button", "media-tracker__link-button");
 	const text = document.createElement("span");
-	text.textContent = label;
+	text.textContent = formatLinkLabel(value);
+	text.classList.add("media-tracker__link-label");
 	button.appendChild(text);
 
-	const iconUrl = handlers.getIconUrl?.(label) ?? null;
+	const iconUrl = handlers.getLinkIconUrl ? handlers.getLinkIconUrl(value) : getFaviconUrl(value);
 	if (iconUrl) {
 		const icon = document.createElement("img");
 		icon.classList.add("media-tracker__link-icon");
-		icon.alt = label;
+		icon.alt = "";
 		icon.src = iconUrl;
-		button.classList.add("media-tracker__icon-button");
 		button.prepend(icon);
-		setAttrSafe(button, "aria-label", label);
-		setAttrSafe(button, "title", label);
-		text.classList.add("media-tracker__icon-fallback");
+		button.classList.add("media-tracker__link-button--icon");
+		setAttrSafe(button, "aria-label", text.textContent ?? "Link");
+		setAttrSafe(button, "title", text.textContent ?? "Link");
 		icon.addEventListener("error", () => {
-			const fallback = handlers.getIconFallbackUrl?.(label, icon.src);
-			if (fallback && fallback !== icon.src) {
-				icon.src = fallback;
-				return;
-			}
 			icon.remove();
-			button.classList.remove("media-tracker__icon-button");
-			text.classList.remove("media-tracker__icon-fallback");
+			button.classList.remove("media-tracker__link-button--icon");
 		});
 	}
 

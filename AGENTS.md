@@ -33,6 +33,11 @@ npm run dev
 npm run build
 ```
 
+### Required workflow
+
+- Always run `npm run build` after edits and resolve any TypeScript errors.
+- If UI changes, run `npm run preview:build` and review the preview before deploying.
+
 ## Linting
 
 - To use eslint install eslint from terminal: `npm install -g eslint`

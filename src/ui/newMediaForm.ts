@@ -29,21 +29,6 @@ export const NEW_MEDIA_TYPE_FIELDS: Record<MediaType, NewMediaFieldConfig[]> = {
 			description: "Chapter, volume, or other progress note.",
 			placeholder: "1",
 		},
-		{
-			key: "patreon",
-			label: "Patreon URL",
-			placeholder: "https://www.patreon.com/creator",
-		},
-		{
-			key: "kemono",
-			label: "Kemono URL",
-			placeholder: "https://kemono.su/creator",
-		},
-		{
-			key: "royalroad",
-			label: "RoyalRoad URL",
-			placeholder: "https://www.royalroad.com/fiction/12345",
-		},
 	],
 	series: [
 		{
@@ -58,11 +43,6 @@ export const NEW_MEDIA_TYPE_FIELDS: Record<MediaType, NewMediaFieldConfig[]> = {
 			placeholder: "5",
 			inputType: "number",
 		},
-		{
-			key: "imdb",
-			label: "IMDB ID or URL",
-			placeholder: "tt1234567",
-		},
 	],
 	movie: [
 		{
@@ -70,11 +50,6 @@ export const NEW_MEDIA_TYPE_FIELDS: Record<MediaType, NewMediaFieldConfig[]> = {
 			label: "Year",
 			placeholder: "2024",
 			inputType: "number",
-		},
-		{
-			key: "imdb",
-			label: "IMDB ID or URL",
-			placeholder: "tt1234567",
 		},
 	],
 };
