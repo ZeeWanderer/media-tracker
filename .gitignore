@@ -24,6 +24,7 @@ preview/out/
 preview/theme.css
 preview/preview.js
 preview/obsidian-app.css
+preview/obsidian-components.css
 
 # Exclude macOS Finder (System Explorer) View States
 .DS_Store
