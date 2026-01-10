@@ -3,7 +3,7 @@ import {MediaItem, MediaStatus, MediaType} from "../types";
 import {MediaTrackerSettings} from "../settings";
 import {collectLinks, getImdbIdFromFrontmatter, getImdbIdFromLinks} from "./links";
 
-const MEDIA_TYPES: MediaType[] = ["novel", "series", "movie"];
+const MEDIA_TYPES: MediaType[] = ["novel", "series", "anime", "movie"];
 const MEDIA_STATUSES: MediaStatus[] = ["planned", "active", "completed", "on-hold", "dropped"];
 
 function normalizeString(value: unknown): string | undefined {
@@ -41,7 +41,7 @@ function buildProgress(type: MediaType, frontmatter: Record<string, unknown>): s
 		const unit = normalizeString(frontmatter.progressUnit) ?? "ch";
 		return progress ? `${unit} ${progress}` : undefined;
 	}
-	if (type === "series") {
+	if (type === "series" || type === "anime") {
 		const season = normalizeString(frontmatter.season);
 		const episode = normalizeString(frontmatter.episode);
 		if (season || episode) {
@@ -152,6 +152,7 @@ export function getMediaItems(app: App, settings: MediaTrackerSettings): MediaIt
 export const MEDIA_TYPE_LABELS: Record<MediaType, string> = {
 	novel: "Novel",
 	series: "Series",
+	anime: "Anime",
 	movie: "Movie",
 };
 

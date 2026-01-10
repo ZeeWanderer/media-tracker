@@ -44,6 +44,20 @@ export const NEW_MEDIA_TYPE_FIELDS: Record<MediaType, NewMediaFieldConfig[]> = {
 			inputType: "number",
 		},
 	],
+	anime: [
+		{
+			key: "season",
+			label: "Season",
+			placeholder: "2",
+			inputType: "number",
+		},
+		{
+			key: "episode",
+			label: "Episode",
+			placeholder: "5",
+			inputType: "number",
+		},
+	],
 	movie: [
 		{
 			key: "year",

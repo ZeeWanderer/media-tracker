@@ -13,7 +13,7 @@ import {migrateFrontmatter} from "../utils/migration";
 
 export const MEDIA_TRACKER_VIEW = "media-tracker-view";
 
-const TYPE_FILTERS: Array<MediaType | "all"> = ["all", "novel", "series", "movie"];
+const TYPE_FILTERS: Array<MediaType | "all"> = ["all", "novel", "series", "anime", "movie"];
 const STATUS_FILTERS: Array<MediaStatus | "all"> = ["all", "planned", "active", "completed", "on-hold", "dropped"];
 
 type DisplayMode = "cards" | "details";
@@ -264,11 +264,11 @@ export class MediaTrackerView extends ItemView {
 			},
 			onProgressAdvance: async (item, nextValue) => {
 				const fullItem = item as MediaItem;
-				if (fullItem.type === "series") {
-					await setSeriesProgress(this.app, fullItem.file, nextValue);
-				} else {
-					await setNovelProgress(this.app, fullItem.file, nextValue);
-				}
+			if (fullItem.type === "series" || fullItem.type === "anime") {
+				await setSeriesProgress(this.app, fullItem.file, nextValue);
+			} else {
+				await setNovelProgress(this.app, fullItem.file, nextValue);
+			}
 			},
 			onLinkOpen: (url) => {
 				window.open(url, "_blank", "noopener");
@@ -370,7 +370,7 @@ export class MediaTrackerView extends ItemView {
 	}
 
 	private getNextProgressValue(item: MediaItem): string | null {
-		if (item.type === "series" && item.season && item.episode !== undefined) {
+		if ((item.type === "series" || item.type === "anime") && item.season && item.episode !== undefined) {
 			return `S${item.season}E${item.episode + 1}`;
 		}
 		const raw = item.progressRaw?.trim();
@@ -498,7 +498,7 @@ export class MediaTrackerView extends ItemView {
 				void this.app.workspace.getLeaf("tab").openFile(item.file);
 			}));
 		menu.addSeparator();
-		if (item.type === "series") {
+		if (item.type === "series" || item.type === "anime") {
 			menu.addItem((itemMenu) => itemMenu
 				.setTitle("Check latest episode")
 				.onClick(async () => {

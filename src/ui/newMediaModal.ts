@@ -34,13 +34,20 @@ export class NewMediaModal extends Modal {
 		new Setting(contentEl)
 			.setName("Type")
 			.addDropdown((dropdown) => {
-				const types: MediaType[] = ["novel", "series", "movie"];
+				const types: MediaType[] = ["novel", "series", "anime", "movie"];
 				for (const type of types) {
 					dropdown.addOption(type, MEDIA_TYPE_LABELS[type]);
 				}
 				dropdown.setValue(this.draft.type);
 				dropdown.onChange((value) => {
-					this.draft.type = value as MediaType;
+					const nextType = value as MediaType;
+					this.draft = {
+						...this.draft,
+						type: nextType,
+						imdbId: nextType === "series" || nextType === "anime" || nextType === "movie"
+							? this.draft.imdbId
+							: undefined,
+					};
 					this.render();
 				});
 			});
@@ -59,6 +66,7 @@ export class NewMediaModal extends Modal {
 		const sectionLabels: Record<MediaType, string> = {
 			novel: "Novel details",
 			series: "Series details",
+			anime: "Anime details",
 			movie: "Movie details",
 		};
 		contentEl.createEl("h3", {text: sectionLabels[this.draft.type]});
@@ -138,7 +146,7 @@ export class NewMediaModal extends Modal {
 	}
 
 	private shouldShowImdbField(): boolean {
-		return this.draft.type === "series" || this.draft.type === "movie";
+		return this.draft.type === "series" || this.draft.type === "anime" || this.draft.type === "movie";
 	}
 
 	private updateImdbId(value: string) {

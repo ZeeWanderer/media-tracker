@@ -2,7 +2,7 @@ import {fileURLToPath, pathToFileURL} from "node:url";
 import path from "node:path";
 import fs from "node:fs/promises";
 
-const MEDIA_TYPES = ["novel", "series", "movie"];
+const MEDIA_TYPES = ["novel", "series", "anime", "movie"];
 const MEDIA_STATUSES = ["planned", "active", "completed", "on-hold", "dropped"];
 const LEGACY_LINK_FIELDS = ["patreon", "kemono", "royalroad", "royalRoad", "imdb", "hdrezka"];
 
@@ -121,7 +121,7 @@ function buildProgress(type, frontmatter) {
 		const unit = normalizeString(frontmatter.progressUnit) ?? "ch";
 		return progress ? `${unit} ${progress}` : undefined;
 	}
-	if (type === "series") {
+if (type === "series" || type === "anime") {
 		const season = normalizeString(frontmatter.season);
 		const episode = normalizeString(frontmatter.episode);
 		if (season || episode) {

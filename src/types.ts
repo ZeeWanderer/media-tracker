@@ -1,6 +1,6 @@
 import {TFile} from "obsidian";
 
-export type MediaType = "novel" | "series" | "movie";
+export type MediaType = "novel" | "series" | "anime" | "movie";
 export type MediaStatus = "planned" | "active" | "completed" | "on-hold" | "dropped";
 
 export interface MediaItem {

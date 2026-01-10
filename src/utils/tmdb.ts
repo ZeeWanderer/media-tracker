@@ -241,7 +241,7 @@ export async function refreshAllSeries(
 	items: MediaItem[],
 	onProgress?: (current: number, total: number) => void,
 ) {
-	const series = items.filter((item) => item.type === "series");
+	const series = items.filter((item) => item.type === "series" || item.type === "anime");
 	const total = series.length;
 	let index = 0;
 	for (const item of series) {

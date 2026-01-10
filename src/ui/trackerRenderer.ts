@@ -70,7 +70,7 @@ export function renderTableRow(item: MediaItemLike, handlers: RenderHandlers): H
 
 	const progressCell = document.createElement("div");
 	progressCell.classList.add("media-tracker__table-cell");
-	if ((item.type === "novel" || item.type === "series") && item.progress) {
+	if ((item.type === "novel" || item.type === "series" || item.type === "anime") && item.progress) {
 		progressCell.appendChild(renderProgressMeta(item, handlers, true));
 	} else {
 		progressCell.textContent = item.progress ?? "-";
@@ -139,7 +139,7 @@ export function renderCard(item: MediaItemLike, handlers: RenderHandlers): HTMLE
 
 	const rowTwo = document.createElement("div");
 	rowTwo.classList.add("media-tracker__meta-row");
-	if (item.progress && (item.type === "novel" || item.type === "series")) {
+	if (item.progress && (item.type === "novel" || item.type === "series" || item.type === "anime")) {
 		rowTwo.appendChild(renderProgressMeta(item, handlers));
 	} else if (item.progress) {
 		const progress = document.createElement("div");
@@ -270,7 +270,7 @@ function createPlusIcon(): SVGSVGElement {
 }
 
 function renderLatestBadge(item: MediaItemLike): HTMLElement | null {
-	if (item.type !== "series") {
+	if (item.type !== "series" && item.type !== "anime") {
 		return null;
 	}
 	const latest = getLatestSeasonEpisode(item);
@@ -367,7 +367,7 @@ function renderLinkButton(
 }
 
 export function getNextProgressValue(item: MediaItemLike): string | null {
-	if (item.type === "series" && item.season && item.episode !== undefined) {
+	if ((item.type === "series" || item.type === "anime") && item.season && item.episode !== undefined) {
 		const seasonKey = String(item.season);
 		const seasonEpisodeCount = item.tmdbSeasonEpisodes?.[seasonKey] ?? item.tmdbLatestSeasonEpisodes;
 		if (seasonEpisodeCount && item.episode >= seasonEpisodeCount) {
