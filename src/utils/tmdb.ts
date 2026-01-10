@@ -102,13 +102,13 @@ async function updateSeriesFrontmatter(
 		if (!cleanedSeasonEpisodes && !hasExistingSeasonEpisodes && payload.episode !== undefined) {
 			frontmatter.tmdbLatestEpisode = payload.episode;
 		} else if (payload.seasonEpisodeCount !== undefined) {
-			if (!hasExistingSeasonEpisodes) {
-				frontmatter.tmdbLatestSeasonEpisodes = payload.seasonEpisodeCount;
-			}
 			if (payload.season !== undefined) {
 				const current = coerceSeasonEpisodes(frontmatter.tmdbSeasonEpisodes);
 				current[String(payload.season)] = payload.seasonEpisodeCount;
 				frontmatter.tmdbSeasonEpisodes = JSON.stringify(current);
+				delete frontmatter.tmdbLatestSeasonEpisodes;
+			} else if (!hasExistingSeasonEpisodes) {
+				frontmatter.tmdbLatestSeasonEpisodes = payload.seasonEpisodeCount;
 			}
 		} else if (frontmatter.tmdbSeasonEpisodes && Object.keys(coerceSeasonEpisodes(frontmatter.tmdbSeasonEpisodes)).length === 0) {
 			delete frontmatter.tmdbSeasonEpisodes;
