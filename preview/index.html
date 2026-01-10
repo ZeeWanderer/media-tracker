@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, initial-scale=1">
+		<title>Media Tracker Preview</title>
+		<link rel="stylesheet" href="./obsidian-app.css">
+		<link rel="stylesheet" href="./theme.css">
+		<link rel="stylesheet" href="../styles.css">
+		<link rel="stylesheet" href="./preview.css">
+	</head>
+	<body>
+		<div class="preview-toolbar">
+			<div class="preview-title">Media Tracker Preview</div>
+			<div class="preview-toggle">
+				<a href="?mode=cards&theme=light">Cards</a>
+				<a href="?mode=details&theme=light">Details</a>
+				<a href="?mode=card-edit&theme=light">Card edit</a>
+				<a href="?mode=components&theme=light">Components</a>
+				<a href="?mode=new-note&theme=light">New note</a>
+				<a href="?mode=cards&theme=dark">Cards (Dark)</a>
+				<a href="?mode=details&theme=dark">Details (Dark)</a>
+				<a href="?mode=card-edit&theme=dark">Card edit (Dark)</a>
+				<a href="?mode=components&theme=dark">Components (Dark)</a>
+				<a href="?mode=new-note&theme=dark">New note (Dark)</a>
+			</div>
+		</div>
+
+		<div class="media-tracker">
+			<div class="media-tracker__header">
+				<h2>Media tracker</h2>
+				<div class="media-tracker__actions">
+					<button class="media-tracker__button media-tracker__icon-button media-tracker__refresh-button" aria-label="Refresh series updates">
+						<svg class="media-tracker__refresh-icon" viewBox="0 0 24 24" aria-hidden="true">
+							<path fill="currentColor" d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 .34-.03.67-.08 1h2.02c.04-.33.06-.66.06-1 0-4.42-3.58-8-8-8zm-6 6c0-.34.03-.67.08-1H4.06c-.04.33-.06.66-.06 1 0 4.42 3.58 8 8 8v3l4-4-4-4v3c-3.31 0-6-2.69-6-6z"></path>
+						</svg>
+						<span class="media-tracker__refresh-label"></span>
+					</button>
+					<button class="media-tracker__button media-tracker__icon-button media-tracker__cleanup-button" aria-label="Cleanup media frontmatter" title="Remove unused frontmatter fields">
+						<svg viewBox="0 0 24 24" aria-hidden="true" class="media-tracker__cleanup-icon">
+							<path fill="currentColor" d="m19.36 2.72l1.42 1.42l-5.72 5.71c1.07 1.54 1.22 3.39.32 4.59L9.06 8.12c1.2-.9 3.05-.75 4.59.32zM5.93 17.57c-2.01-2.01-3.24-4.41-3.58-6.65l4.88-2.09l7.44 7.44l-2.09 4.88c-2.24-.34-4.64-1.57-6.65-3.58"></path>
+						</svg>
+					</button>
+					<button class="media-tracker__button">New entry</button>
+				</div>
+			</div>
+
+			<div class="media-tracker__filters">
+				<div class="media-tracker__search-wrap">
+					<input class="media-tracker__search" type="search" placeholder="Search title or author" value="">
+					<button class="media-tracker__search-clear is-visible" type="button" aria-label="Clear search" title="Clear search"></button>
+				</div>
+				<select>
+					<option>All types</option>
+					<option>Series</option>
+					<option>Novel</option>
+					<option>Movie</option>
+				</select>
+				<select>
+					<option>All statuses</option>
+					<option>Active</option>
+					<option>Completed</option>
+					<option>On hold</option>
+				</select>
+				<select>
+					<option>Cards</option>
+					<option>Details</option>
+				</select>
+			</div>
+
+			<section class="preview-section preview-section--cards">
+				<div class="media-tracker__list" id="preview-cards"></div>
+			</section>
+
+			<section class="preview-section preview-section--details">
+				<div class="media-tracker__table" id="preview-table"></div>
+			</section>
+
+			<section class="preview-section preview-section--new-note">
+				<div id="preview-new-note"></div>
+			</section>
+
+			<section class="preview-section preview-section--card-edit">
+				<div class="media-tracker__list" id="preview-card-edit"></div>
+			</section>
+
+			<section class="preview-section preview-section--components" hidden>
+				<div id="preview-components"></div>
+			</section>
+		</div>
+
+		<script src="./data.js"></script>
+		<script src="./preview.js"></script>
+	</body>
+</html>

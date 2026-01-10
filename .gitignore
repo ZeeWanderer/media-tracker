@@ -18,5 +18,12 @@ main.js
 # obsidian
 data.json
 
+# UI preview artifacts (generated from local vault data)
+preview/data.js
+preview/out/
+preview/theme.css
+preview/preview.js
+preview/obsidian-app.css
+
 # Exclude macOS Finder (System Explorer) View States
 .DS_Store
