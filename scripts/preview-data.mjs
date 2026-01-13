@@ -2,7 +2,6 @@ import {fileURLToPath, pathToFileURL} from "node:url";
 import path from "node:path";
 import fs from "node:fs/promises";
 
-const MEDIA_TYPES = ["novel", "series", "anime", "movie"];
 const MEDIA_STATUSES = ["planned", "active", "completed", "on-hold", "dropped"];
 const LEGACY_LINK_FIELDS = ["patreon", "kemono", "royalroad", "royalRoad", "imdb", "hdrezka"];
 
@@ -22,8 +21,7 @@ function normalizeType(value) {
 	if (!raw) {
 		return null;
 	}
-	const lowered = raw.toLowerCase();
-	return MEDIA_TYPES.find((type) => type === lowered) ?? null;
+	return raw.toLowerCase();
 }
 
 function normalizeStatus(value) {
@@ -112,7 +110,7 @@ function getTitleSortKey(title) {
 }
 
 function buildProgress(type, frontmatter) {
-	if (type === "novel") {
+	if (type === "novel" || type === "manga") {
 		const label = normalizeString(frontmatter.progressLabel);
 		if (label) {
 			return label;
@@ -242,6 +240,26 @@ function parseMediaItem(filePath, frontmatter) {
 	};
 }
 
+function buildAnnouncedSeasonPreviewItem() {
+	return {
+		title: "Dept Q (Announced season)",
+		type: "series",
+		status: "active",
+		season: 1,
+		episode: 9,
+		progress: "S1E9",
+		links: [],
+		tmdbLatestSeason: 1,
+		tmdbLatestEpisode: 9,
+		tmdbLatestAirDate: "2025-02-14",
+		tmdbLatestName: "Episode 9",
+		tmdbSeasonEpisodes: {
+			"1": 9,
+			"2": 0,
+		},
+	};
+}
+
 async function loadMediaItems(mediaDir) {
 	let entries;
 	try {
@@ -275,8 +293,16 @@ export async function generatePreviewData() {
 	const maxItems = Number.parseInt(process.env.MEDIA_TRACKER_PREVIEW_LIMIT ?? "48", 10);
 	const items = await loadMediaItems(mediaDir);
 	const limited = Number.isFinite(maxItems) && maxItems > 0 ? items.slice(0, maxItems) : items;
+	const previewItems = [...limited];
+	const announcedItem = buildAnnouncedSeasonPreviewItem();
+	if (!previewItems.some((item) => item.title === announcedItem.title)) {
+		if (Number.isFinite(maxItems) && maxItems > 0 && previewItems.length >= maxItems) {
+			previewItems.pop();
+		}
+		previewItems.unshift(announcedItem);
+	}
 	const dataPath = path.join(root, "preview", "data.js");
-	const payload = {items: limited};
+	const payload = {items: previewItems};
 	const content = `window.MEDIA_TRACKER_PREVIEW_DATA = ${JSON.stringify(payload, null, 2)};`;
 	await fs.writeFile(dataPath, content, "utf8");
 	return {dataPath, count: limited.length, mediaDir};

@@ -1,9 +1,10 @@
 import {Modal, Setting} from "obsidian";
 import MediaTrackerPlugin from "../main";
-import {MediaStatus, MediaType, NewMediaDraft} from "../types";
-import {MEDIA_STATUS_LABELS, MEDIA_TYPE_LABELS} from "../utils/media";
+import {MediaStatus, MediaType, NewMediaDraft, NewMediaFieldConfig} from "../types";
+import {MEDIA_STATUS_LABELS} from "../utils/media";
+import {IMDB_TYPES, MEDIA_TYPE_LABELS, MEDIA_TYPES} from "../utils/mediaConfig";
 import {createMediaNote} from "../utils/notes";
-import {NEW_MEDIA_BASE_FIELDS, NEW_MEDIA_TYPE_FIELDS, type NewMediaFieldConfig} from "./newMediaForm";
+import {NEW_MEDIA_BASE_FIELDS, NEW_MEDIA_TYPE_FIELDS} from "./newMediaForm";
 import {extractImdbId} from "../utils/links";
 
 export class NewMediaModal extends Modal {
@@ -34,8 +35,7 @@ export class NewMediaModal extends Modal {
 		new Setting(contentEl)
 			.setName("Type")
 			.addDropdown((dropdown) => {
-				const types: MediaType[] = ["novel", "series", "anime", "movie"];
-				for (const type of types) {
+				for (const type of MEDIA_TYPES) {
 					dropdown.addOption(type, MEDIA_TYPE_LABELS[type]);
 				}
 				dropdown.setValue(this.draft.type);
@@ -63,13 +63,7 @@ export class NewMediaModal extends Modal {
 				dropdown.onChange((value) => this.draft.status = value as MediaStatus);
 			});
 
-		const sectionLabels: Record<MediaType, string> = {
-			novel: "Novel details",
-			series: "Series details",
-			anime: "Anime details",
-			movie: "Movie details",
-		};
-		contentEl.createEl("h3", {text: sectionLabels[this.draft.type]});
+		contentEl.createEl("h3", {text: `${MEDIA_TYPE_LABELS[this.draft.type]} details`});
 		this.renderFields(contentEl, NEW_MEDIA_TYPE_FIELDS[this.draft.type]);
 
 		this.renderLinks(contentEl);
@@ -146,7 +140,7 @@ export class NewMediaModal extends Modal {
 	}
 
 	private shouldShowImdbField(): boolean {
-		return this.draft.type === "series" || this.draft.type === "anime" || this.draft.type === "movie";
+		return IMDB_TYPES.has(this.draft.type);
 	}
 
 	private updateImdbId(value: string) {

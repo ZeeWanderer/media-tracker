@@ -2,6 +2,7 @@ import {App, Notice, requestUrl} from "obsidian";
 import {MediaItem} from "../types";
 import {MediaTrackerSettings} from "../settings";
 import {extractImdbId, getImdbIdFromLinks} from "./links";
+import {TMDB_TYPES} from "./mediaConfig";
 
 const TMDB_BASE = "https://api.themoviedb.org/3";
 
@@ -93,14 +94,6 @@ async function updateSeriesFrontmatter(
 		const hasExistingSeasonEpisodes = Object.keys(coerceSeasonEpisodes(frontmatter.tmdbSeasonEpisodes)).length > 0;
 		if (cleanedSeasonEpisodes) {
 			frontmatter.tmdbSeasonEpisodes = encodedSeasonEpisodes;
-			delete frontmatter.tmdbLatestSeasonEpisodes;
-			delete frontmatter.tmdbLatestSeason;
-			delete frontmatter.tmdbLatestEpisode;
-		} else if (!hasExistingSeasonEpisodes && payload.season !== undefined) {
-			frontmatter.tmdbLatestSeason = payload.season;
-		}
-		if (!cleanedSeasonEpisodes && !hasExistingSeasonEpisodes && payload.episode !== undefined) {
-			frontmatter.tmdbLatestEpisode = payload.episode;
 		} else if (payload.seasonEpisodeCount !== undefined) {
 			if (payload.season !== undefined) {
 				const current = coerceSeasonEpisodes(frontmatter.tmdbSeasonEpisodes);
@@ -109,6 +102,15 @@ async function updateSeriesFrontmatter(
 			}
 		} else if (frontmatter.tmdbSeasonEpisodes && Object.keys(coerceSeasonEpisodes(frontmatter.tmdbSeasonEpisodes)).length === 0) {
 			delete frontmatter.tmdbSeasonEpisodes;
+		}
+		if (payload.season !== undefined) {
+			frontmatter.tmdbLatestSeason = payload.season;
+		}
+		if (payload.episode !== undefined) {
+			frontmatter.tmdbLatestEpisode = payload.episode;
+		}
+		if (payload.seasonEpisodeCount !== undefined) {
+			frontmatter.tmdbLatestSeasonEpisodes = payload.seasonEpisodeCount;
 		}
 		if (payload.airDate) {
 			frontmatter.tmdbLatestAirDate = payload.airDate;
@@ -206,9 +208,7 @@ export async function refreshSeriesLatest(
 		}
 
 		const latest = await fetchLatestEpisode(tmdbId, apiKey);
-		const seasonEpisodeCount = latest?.season && latest.seasonEpisodes
-			? latest.seasonEpisodes[String(latest.season)]
-			: undefined;
+		const seasonEpisodeCount = latest?.episode ?? undefined;
 		await updateSeriesFrontmatter(app, item.file, {
 			tmdbId,
 			lastChecked: Date.now(),
@@ -238,7 +238,7 @@ export async function refreshAllSeries(
 	items: MediaItem[],
 	onProgress?: (current: number, total: number) => void,
 ) {
-	const series = items.filter((item) => item.type === "series" || item.type === "anime");
+	const series = items.filter((item) => TMDB_TYPES.has(item.type));
 	const total = series.length;
 	let index = 0;
 	for (const item of series) {

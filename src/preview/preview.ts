@@ -1,4 +1,5 @@
-import {MEDIA_STATUS_LABELS, MEDIA_TYPE_LABELS} from "../utils/media";
+import {MEDIA_STATUS_LABELS} from "../utils/media";
+import {MEDIA_TYPE_LABELS} from "../utils/mediaConfig";
 import {NEW_MEDIA_BASE_FIELDS, NEW_MEDIA_TYPE_FIELDS} from "../ui/newMediaForm";
 import {getKnownIconAsset} from "../utils/links";
 import {renderCard, renderTableHeader, renderTableRow, type MediaItemLike, type RenderHandlers, type SortDirection, type SortKey} from "../ui/trackerRenderer";
@@ -161,7 +162,7 @@ if (componentsContainer && mode === "components") {
 		clear.className = "media-tracker__search-clear is-visible";
 		searchWrap.appendChild(clear);
 		searchRow.appendChild(searchWrap);
-		searchRow.appendChild(createSelect(["All types", "Series", "Novel", "Movie"]));
+		searchRow.appendChild(createSelect(["All types", MEDIA_TYPE_LABELS.series, MEDIA_TYPE_LABELS.novel, MEDIA_TYPE_LABELS.manga, MEDIA_TYPE_LABELS.movie]));
 		searchRow.appendChild(createSelect(["All statuses", "Active", "Completed", "On hold"]));
 		searchRow.appendChild(createSelect(["Cards", "Details"]));
 		container.appendChild(createLabeledBlock("Search + filters", searchRow));
@@ -214,6 +215,17 @@ if (componentsContainer && mode === "components") {
 		newBadge.className = "media-tracker__badge media-tracker__badge--new";
 		newBadge.textContent = "New S2E6";
 		badgeRow.appendChild(newBadge);
+		const badgeGroup = document.createElement("span");
+		badgeGroup.className = "media-tracker__badge-group";
+		const latestBadge = document.createElement("span");
+		latestBadge.className = "media-tracker__badge";
+		latestBadge.textContent = "Latest S1E9";
+		const announcedBadge = document.createElement("span");
+		announcedBadge.className = "media-tracker__badge";
+		announcedBadge.textContent = "S2 Ann.";
+		badgeGroup.appendChild(latestBadge);
+		badgeGroup.appendChild(announcedBadge);
+		badgeRow.appendChild(badgeGroup);
 		container.appendChild(createLabeledBlock("Badges", badgeRow));
 
 		const statusRow = document.createElement("div");

@@ -1,7 +1,8 @@
 import {ItemView, Menu, Notice, WorkspaceLeaf} from "obsidian";
 import MediaTrackerPlugin from "../main";
 import {MediaItem, MediaStatus, MediaType} from "../types";
-import {MEDIA_STATUS_LABELS, MEDIA_TYPE_LABELS, getMediaItems, getTitleSortKey} from "../utils/media";
+import {MEDIA_STATUS_LABELS, getMediaItems, getTitleSortKey} from "../utils/media";
+import {MEDIA_TYPE_LABELS, MEDIA_TYPES, SEASON_EPISODE_TYPES, TMDB_TYPES} from "../utils/mediaConfig";
 import {NewMediaModal} from "./newMediaModal";
 import {addMediaLink, setNovelProgress, setSeriesProgress} from "../utils/notes";
 import {LinkModal} from "./linkModal";
@@ -13,7 +14,7 @@ import {migrateFrontmatter} from "../utils/migration";
 
 export const MEDIA_TRACKER_VIEW = "media-tracker-view";
 
-const TYPE_FILTERS: Array<MediaType | "all"> = ["all", "novel", "series", "anime", "movie"];
+const TYPE_FILTERS: Array<MediaType | "all"> = ["all", ...MEDIA_TYPES];
 const STATUS_FILTERS: Array<MediaStatus | "all"> = ["all", "planned", "active", "completed", "on-hold", "dropped"];
 
 type DisplayMode = "cards" | "details";
@@ -264,7 +265,7 @@ export class MediaTrackerView extends ItemView {
 			},
 			onProgressAdvance: async (item, nextValue) => {
 				const fullItem = item as MediaItem;
-			if (fullItem.type === "series" || fullItem.type === "anime") {
+			if (SEASON_EPISODE_TYPES.has(fullItem.type)) {
 				await setSeriesProgress(this.app, fullItem.file, nextValue);
 			} else {
 				await setNovelProgress(this.app, fullItem.file, nextValue);
@@ -341,7 +342,7 @@ export class MediaTrackerView extends ItemView {
 
 		const finish = async (save: boolean) => {
 			if (save) {
-				if (item.type === "series") {
+				if (SEASON_EPISODE_TYPES.has(item.type)) {
 					await setSeriesProgress(this.app, item.file, input.value);
 				} else {
 					await setNovelProgress(this.app, item.file, input.value);
@@ -370,7 +371,7 @@ export class MediaTrackerView extends ItemView {
 	}
 
 	private getNextProgressValue(item: MediaItem): string | null {
-		if ((item.type === "series" || item.type === "anime") && item.season && item.episode !== undefined) {
+		if (SEASON_EPISODE_TYPES.has(item.type) && item.season !== undefined && item.episode !== undefined) {
 			return `S${item.season}E${item.episode + 1}`;
 		}
 		const raw = item.progressRaw?.trim();
@@ -475,12 +476,6 @@ export class MediaTrackerView extends ItemView {
 			delete frontmatter.chapter;
 		}
 
-		if (hasSeasonEpisodes(frontmatter.tmdbSeasonEpisodes)) {
-			delete frontmatter.tmdbLatestSeasonEpisodes;
-			delete frontmatter.tmdbLatestSeason;
-			delete frontmatter.tmdbLatestEpisode;
-		}
-
 		const links = collectLinks(frontmatter);
 		setLinks(frontmatter, links);
 		migrateFrontmatter(frontmatter);
@@ -498,7 +493,7 @@ export class MediaTrackerView extends ItemView {
 				void this.app.workspace.getLeaf("tab").openFile(item.file);
 			}));
 		menu.addSeparator();
-		if (item.type === "series" || item.type === "anime") {
+		if (TMDB_TYPES.has(item.type)) {
 			menu.addItem((itemMenu) => itemMenu
 				.setTitle("Check latest episode")
 				.onClick(async () => {

@@ -1,6 +1,6 @@
 import {TFile} from "obsidian";
 
-export type MediaType = "novel" | "series" | "anime" | "movie";
+export type MediaType = "novel" | "manga" | "series" | "anime" | "movie";
 export type MediaStatus = "planned" | "active" | "completed" | "on-hold" | "dropped";
 
 export interface MediaItem {
@@ -39,3 +39,11 @@ export interface NewMediaDraft {
 	imdbId?: string;
 	links: string[];
 }
+
+export type NewMediaFieldConfig = {
+	key: keyof NewMediaDraft;
+	label: string;
+	placeholder?: string;
+	description?: string;
+	inputType?: "text" | "number";
+};

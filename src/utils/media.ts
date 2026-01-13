@@ -2,8 +2,7 @@ import {App, TFile} from "obsidian";
 import {MediaItem, MediaStatus, MediaType} from "../types";
 import {MediaTrackerSettings} from "../settings";
 import {collectLinks, getImdbIdFromFrontmatter, getImdbIdFromLinks} from "./links";
-
-const MEDIA_TYPES: MediaType[] = ["novel", "series", "anime", "movie"];
+import {MEDIA_TYPE_LABELS, MEDIA_TYPES, NOVEL_PROGRESS_TYPES, SEASON_EPISODE_TYPES} from "./mediaConfig";
 const MEDIA_STATUSES: MediaStatus[] = ["planned", "active", "completed", "on-hold", "dropped"];
 
 function normalizeString(value: unknown): string | undefined {
@@ -32,7 +31,7 @@ function normalizeStatus(value: unknown): MediaStatus {
 }
 
 function buildProgress(type: MediaType, frontmatter: Record<string, unknown>): string | undefined {
-	if (type === "novel") {
+	if (NOVEL_PROGRESS_TYPES.has(type)) {
 		const label = normalizeString(frontmatter.progressLabel);
 		if (label) {
 			return label;
@@ -41,7 +40,7 @@ function buildProgress(type: MediaType, frontmatter: Record<string, unknown>): s
 		const unit = normalizeString(frontmatter.progressUnit) ?? "ch";
 		return progress ? `${unit} ${progress}` : undefined;
 	}
-	if (type === "series" || type === "anime") {
+	if (SEASON_EPISODE_TYPES.has(type)) {
 		const season = normalizeString(frontmatter.season);
 		const episode = normalizeString(frontmatter.episode);
 		if (season || episode) {
@@ -148,13 +147,6 @@ export function getMediaItems(app: App, settings: MediaTrackerSettings): MediaIt
 	items.sort((a, b) => getTitleSortKey(a.title).localeCompare(getTitleSortKey(b.title)));
 	return items;
 }
-
-export const MEDIA_TYPE_LABELS: Record<MediaType, string> = {
-	novel: "Novel",
-	series: "Series",
-	anime: "Anime",
-	movie: "Movie",
-};
 
 export const MEDIA_STATUS_LABELS: Record<MediaStatus, string> = {
 	planned: "Planned",

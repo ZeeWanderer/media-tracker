@@ -1,5 +1,6 @@
 import {MediaItem, MediaStatus} from "../types";
-import {MEDIA_STATUS_LABELS, MEDIA_TYPE_LABELS} from "../utils/media";
+import {MEDIA_STATUS_LABELS} from "../utils/media";
+import {MEDIA_TYPE_LABELS, NOVEL_PROGRESS_TYPES, SEASON_EPISODE_TYPES, TMDB_TYPES} from "../utils/mediaConfig";
 import {extractImdbId, formatLinkLabel, getFaviconUrl, toLinkUrl} from "../utils/links";
 
 export type SortKey = "title" | "type" | "status" | "progress";
@@ -70,8 +71,12 @@ export function renderTableRow(item: MediaItemLike, handlers: RenderHandlers): H
 
 	const progressCell = document.createElement("div");
 	progressCell.classList.add("media-tracker__table-cell");
-	if ((item.type === "novel" || item.type === "series" || item.type === "anime") && item.progress) {
-		progressCell.appendChild(renderProgressMeta(item, handlers, true));
+	if (NOVEL_PROGRESS_TYPES.has(item.type) || SEASON_EPISODE_TYPES.has(item.type)) {
+		if (item.progress) {
+			progressCell.appendChild(renderProgressMeta(item, handlers, true));
+		} else {
+			progressCell.textContent = item.progress ?? "-";
+		}
 	} else {
 		progressCell.textContent = item.progress ?? "-";
 	}
@@ -139,7 +144,7 @@ export function renderCard(item: MediaItemLike, handlers: RenderHandlers): HTMLE
 
 	const rowTwo = document.createElement("div");
 	rowTwo.classList.add("media-tracker__meta-row");
-	if (item.progress && (item.type === "novel" || item.type === "series" || item.type === "anime")) {
+	if ((NOVEL_PROGRESS_TYPES.has(item.type) || SEASON_EPISODE_TYPES.has(item.type)) && item.progress) {
 		rowTwo.appendChild(renderProgressMeta(item, handlers));
 	} else if (item.progress) {
 		const progress = document.createElement("div");
@@ -270,29 +275,19 @@ function createPlusIcon(): SVGSVGElement {
 }
 
 function renderLatestBadge(item: MediaItemLike): HTMLElement | null {
-	if (item.type !== "series" && item.type !== "anime") {
+	if (!TMDB_TYPES.has(item.type)) {
 		return null;
 	}
 	const latest = getLatestSeasonEpisode(item);
 	if (!latest) {
-		return null;
-	}
-	const badge = document.createElement("span");
-	badge.classList.add("media-tracker__badge");
-	let isNew = false;
-	if (item.season && item.episode !== undefined) {
-		if (latest.season > item.season) {
-			isNew = true;
-		} else if (latest.season === item.season && latest.episode > item.episode) {
-			isNew = true;
+		const announcedSeason = getAnnouncedSeason(item.tmdbSeasonEpisodes, 0);
+		if (announcedSeason === null) {
+			return null;
 		}
+		return createBadge(`S${announcedSeason} Ann.`);
 	}
-	if (isNew) {
-		badge.classList.add("media-tracker__badge--new");
-		badge.textContent = `New S${latest.season}E${latest.episode}`;
-	} else {
-		badge.textContent = `Latest S${latest.season}E${latest.episode}`;
-	}
+	const announcedSeason = getAnnouncedSeason(item.tmdbSeasonEpisodes, latest.season);
+	const latestBadge = createLatestBadge(item, latest);
 	if (item.tmdbLatestAirDate || item.tmdbLatestName) {
 		const parts = [];
 		if (item.tmdbLatestName) {
@@ -301,9 +296,62 @@ function renderLatestBadge(item: MediaItemLike): HTMLElement | null {
 		if (item.tmdbLatestAirDate) {
 			parts.push(item.tmdbLatestAirDate);
 		}
-		setAttrSafe(badge, "title", parts.join(" • "));
+		setAttrSafe(latestBadge, "title", parts.join(" • "));
 	}
+	if (announcedSeason !== null) {
+		const group = document.createElement("span");
+		group.classList.add("media-tracker__badge-group");
+		group.appendChild(latestBadge);
+		group.appendChild(createBadge(`S${announcedSeason} Ann.`));
+		return group;
+	}
+	return latestBadge;
+}
+
+function createLatestBadge(
+	item: MediaItemLike,
+	latest: {season: number; episode: number},
+): HTMLElement {
+	let isNew = false;
+	if (item.season !== undefined && item.episode !== undefined) {
+		if (latest.season > item.season) {
+			isNew = true;
+		} else if (latest.season === item.season && latest.episode > item.episode) {
+			isNew = true;
+		}
+	}
+	const label = isNew
+		? `New S${latest.season}E${latest.episode}`
+		: `Latest S${latest.season}E${latest.episode}`;
+	return createBadge(label, isNew);
+}
+
+function createBadge(text: string, isNew = false): HTMLElement {
+	const badge = document.createElement("span");
+	badge.classList.add("media-tracker__badge");
+	if (isNew) {
+		badge.classList.add("media-tracker__badge--new");
+	}
+	badge.textContent = text;
 	return badge;
+}
+
+function getAnnouncedSeason(
+	seasonEpisodes: Record<string, number> | undefined,
+	latestSeason: number,
+): number | null {
+	if (!seasonEpisodes) {
+		return null;
+	}
+	const announced = Object.entries(seasonEpisodes)
+		.map(([key, value]) => ({season: Number(key), episodes: Number(value)}))
+		.filter((entry) => Number.isFinite(entry.season) && Number.isFinite(entry.episodes))
+		.filter((entry) => entry.episodes === 0 && entry.season > latestSeason)
+		.map((entry) => entry.season);
+	if (!announced.length) {
+		return null;
+	}
+	return Math.max(...announced);
 }
 
 function renderLinks(container: HTMLElement, item: MediaItemLike, handlers: RenderHandlers): number {
@@ -367,11 +415,16 @@ function renderLinkButton(
 }
 
 export function getNextProgressValue(item: MediaItemLike): string | null {
-	if ((item.type === "series" || item.type === "anime") && item.season && item.episode !== undefined) {
+	if (SEASON_EPISODE_TYPES.has(item.type) && item.season !== undefined && item.episode !== undefined) {
 		const seasonKey = String(item.season);
-		const seasonEpisodeCount = item.tmdbSeasonEpisodes?.[seasonKey] ?? item.tmdbLatestSeasonEpisodes;
+		const isLatestSeason = item.tmdbLatestSeason !== undefined
+			&& item.tmdbLatestEpisode !== undefined
+			&& item.season === item.tmdbLatestSeason;
+		const seasonEpisodeCount = isLatestSeason
+			? item.tmdbLatestEpisode
+			: item.tmdbSeasonEpisodes?.[seasonKey] ?? item.tmdbLatestSeasonEpisodes;
 		if (seasonEpisodeCount && item.episode >= seasonEpisodeCount) {
-			return `S${item.season + 1}E1`;
+			return isLatestSeason ? null : `S${item.season + 1}E1`;
 		}
 		return `S${item.season}E${item.episode + 1}`;
 	}
@@ -395,20 +448,23 @@ export function getNextProgressValue(item: MediaItemLike): string | null {
 }
 
 function getLatestSeasonEpisode(item: MediaItemLike): {season: number; episode: number} | null {
-	if (item.tmdbLatestSeason && item.tmdbLatestEpisode) {
+	if (item.tmdbLatestSeason !== undefined && item.tmdbLatestEpisode !== undefined) {
 		return {season: item.tmdbLatestSeason, episode: item.tmdbLatestEpisode};
 	}
 	const map = item.tmdbSeasonEpisodes;
 	if (!map) {
 		return null;
 	}
-	const seasons = Object.keys(map).map((key) => Number(key)).filter((val) => Number.isFinite(val));
+	const seasons = Object.entries(map)
+		.map(([key, value]) => ({season: Number(key), episodes: Number(value)}))
+		.filter((entry) => Number.isFinite(entry.season) && Number.isFinite(entry.episodes) && entry.episodes > 0)
+		.map((entry) => entry.season);
 	if (!seasons.length) {
 		return null;
 	}
 	const latestSeason = Math.max(...seasons);
 	const latestEpisode = map[String(latestSeason)];
-	if (!latestEpisode) {
+	if (latestEpisode === undefined || latestEpisode <= 0) {
 		return null;
 	}
 	return {season: latestSeason, episode: latestEpisode};

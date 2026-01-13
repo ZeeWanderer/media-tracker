@@ -310,6 +310,17 @@
 	margin-left: 4px;
 }
 
+.media-tracker__badge-group {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	margin-left: 4px;
+}
+
+.media-tracker__badge-group .media-tracker__badge {
+	margin-left: 0;
+}
+
 .media-tracker__badge--new {
 	background: var(--interactive-accent);
 	color: var(--text-on-accent);
