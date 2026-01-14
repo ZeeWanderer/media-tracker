@@ -3,6 +3,7 @@ import {MediaItem} from "../types";
 import {MediaTrackerSettings} from "../settings";
 import {extractImdbId, getImdbIdFromLinks} from "./links";
 import {TMDB_TYPES} from "./mediaConfig";
+import {updateFrontmatter} from "./frontmatter";
 
 const TMDB_BASE = "https://api.themoviedb.org/3";
 
@@ -77,10 +78,7 @@ async function updateSeriesFrontmatter(
 		name?: string;
 	},
 ) {
-	await app.fileManager.processFrontMatter(file, (frontmatter) => {
-		if (!frontmatter) {
-			return;
-		}
+	await updateFrontmatter(app, file, (frontmatter) => {
 		if (payload.tmdbId) {
 			frontmatter.tmdbId = payload.tmdbId;
 		}
@@ -149,19 +147,13 @@ function sanitizeSeasonEpisodes(map: Record<string, number>): Record<string, num
 }
 
 async function storeSeriesTmdbId(app: App, file: import("obsidian").TFile, tmdbId: number) {
-	await app.fileManager.processFrontMatter(file, (frontmatter) => {
-		if (!frontmatter) {
-			return;
-		}
+	await updateFrontmatter(app, file, (frontmatter) => {
 		frontmatter.tmdbId = tmdbId;
 	});
 }
 
 async function storeSeriesImdbId(app: App, file: import("obsidian").TFile, imdbId: string) {
-	await app.fileManager.processFrontMatter(file, (frontmatter) => {
-		if (!frontmatter) {
-			return;
-		}
+	await updateFrontmatter(app, file, (frontmatter) => {
 		frontmatter.imdbId = imdbId;
 	});
 }

@@ -57,6 +57,7 @@ export const MEDIA_TYPE_FIELDS = Object.fromEntries(
 ) as Record<MediaType, NewMediaFieldConfig[]>;
 
 export const TMDB_TYPES = new Set<MediaType>(["series", "anime"]);
+export const ANILIST_TYPES = new Set<MediaType>(["anime", "manga"]);
 export const IMDB_TYPES = new Set<MediaType>(["series", "anime", "movie"]);
 export const NOVEL_PROGRESS_TYPES = new Set<MediaType>(["novel", "manga"]);
 export const SEASON_EPISODE_TYPES = new Set<MediaType>(["series", "anime"]);

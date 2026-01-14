@@ -25,6 +25,16 @@ export interface MediaItem {
 	tmdbSeasonEpisodes?: Record<string, number>;
 	tmdbLatestAirDate?: string;
 	tmdbLatestName?: string;
+	anilistId?: number;
+	anilistIds?: number[];
+	anilistLastChecked?: number;
+	anilistLatestEpisode?: number;
+	anilistNextEpisode?: number;
+	anilistNextAiringAt?: number;
+	anilistChapters?: number;
+	anilistVolumes?: number;
+	anilistSeason?: number;
+	anilistSeasonTotal?: number;
 }
 
 export interface NewMediaDraft {
@@ -37,6 +47,7 @@ export interface NewMediaDraft {
 	episode?: string;
 	year?: string;
 	imdbId?: string;
+	anilistId?: string;
 	links: string[];
 }
 

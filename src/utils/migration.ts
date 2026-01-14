@@ -1,9 +1,7 @@
-import {collectLinks, setLinks} from "./links";
+import {normalizeFrontmatter} from "./frontmatter";
 
-export const CURRENT_MEDIA_VERSION = 2;
+export const CURRENT_MEDIA_VERSION = 3;
 
 export function migrateFrontmatter(frontmatter: Record<string, unknown>) {
-	frontmatter.mediaTrackerVersion = CURRENT_MEDIA_VERSION;
-	const links = collectLinks(frontmatter);
-	setLinks(frontmatter, links);
+	normalizeFrontmatter(frontmatter);
 }

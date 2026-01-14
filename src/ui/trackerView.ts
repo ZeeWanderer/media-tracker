@@ -6,11 +6,11 @@ import {MEDIA_TYPE_LABELS, MEDIA_TYPES, SEASON_EPISODE_TYPES, TMDB_TYPES} from "
 import {NewMediaModal} from "./newMediaModal";
 import {addMediaLink, setNovelProgress, setSeriesProgress} from "../utils/notes";
 import {LinkModal} from "./linkModal";
-import {refreshAllSeries, refreshSeriesLatest} from "../utils/tmdb";
+import {refreshAllMedia, refreshMediaLatest} from "../utils/refresh";
 import {renderCard, renderTableHeader, renderTableRow, type RenderHandlers, type SortDirection, type SortKey} from "./trackerRenderer";
-import {collectLinks, getKnownIconAsset, setLinks} from "../utils/links";
+import {KNOWN_ICON_BASES, getAnilistUrl, getKnownIconAsset} from "../utils/links";
 import {fetchFaviconDataUrl, getCachedFavicon, getFaviconCacheKey} from "../utils/favicon";
-import {migrateFrontmatter} from "../utils/migration";
+import {cleanFrontmatter, updateFrontmatter} from "../utils/frontmatter";
 
 export const MEDIA_TRACKER_VIEW = "media-tracker-view";
 
@@ -28,6 +28,8 @@ export class MediaTrackerView extends ItemView {
 	private sortKey: SortKey = "title";
 	private sortDirection: SortDirection = "asc";
 	private faviconInflight = new Set<string>();
+	private knownIconAssets = new Map<string, string>();
+	private knownIconAssetsPromise: Promise<void> | null = null;
 
 	constructor(leaf: WorkspaceLeaf, plugin: MediaTrackerPlugin) {
 		super(leaf);
@@ -62,19 +64,20 @@ export class MediaTrackerView extends ItemView {
 
 		contentEl.empty();
 		contentEl.addClass("media-tracker");
+		void this.ensureKnownIconAssets();
 
 		const header = contentEl.createDiv({cls: "media-tracker__header"});
 		header.createEl("h2", {text: "Media tracker"});
 
 		const actions = header.createDiv({cls: "media-tracker__actions"});
 		const refreshButton = actions.createEl("button", {cls: "media-tracker__button media-tracker__icon-button media-tracker__refresh-button"});
-		refreshButton.setAttr("aria-label", "Refresh series updates");
+		refreshButton.setAttr("aria-label", "Refresh media updates");
 		refreshButton.setAttr("title", this.getRefreshTooltip());
 		refreshButton.appendChild(this.createRefreshIcon());
 		const refreshLabel = refreshButton.createSpan({cls: "media-tracker__refresh-label"});
 		refreshButton.addEventListener("click", async () => {
 			const items = getMediaItems(this.app, this.plugin.settings);
-			await refreshAllSeries(this.app, this.plugin.settings, items, (current, total) => {
+			await refreshAllMedia(this.app, this.plugin.settings, items, (current, total) => {
 				refreshLabel.setText(`${current}/${total}`);
 				refreshButton.addClass("media-tracker__refresh-button--progress");
 			});
@@ -98,11 +101,10 @@ export class MediaTrackerView extends ItemView {
 			let changed = 0;
 			for (const item of items) {
 				let modified = false;
-				await this.app.fileManager.processFrontMatter(item.file, (frontmatter) => {
-					const before = JSON.stringify(frontmatter);
-					this.pruneFrontmatter(frontmatter);
-					modified = JSON.stringify(frontmatter) != before;
-				});
+				const before = JSON.stringify(this.app.metadataCache.getFileCache(item.file)?.frontmatter ?? {});
+				await cleanFrontmatter(this.app, item.file);
+				const after = JSON.stringify(this.app.metadataCache.getFileCache(item.file)?.frontmatter ?? {});
+				modified = before !== after;
 				if (modified) {
 					changed += 1;
 				}
@@ -255,9 +257,8 @@ export class MediaTrackerView extends ItemView {
 			},
 			onStatusChange: async (item, status) => {
 				const fullItem = item as MediaItem;
-				await this.app.fileManager.processFrontMatter(fullItem.file, (frontmatter) => {
+				await updateFrontmatter(this.app, fullItem.file, (frontmatter) => {
 					frontmatter.status = status;
-					migrateFrontmatter(frontmatter);
 				});
 			},
 			onProgressEdit: (target, item) => {
@@ -275,7 +276,8 @@ export class MediaTrackerView extends ItemView {
 				window.open(url, "_blank", "noopener");
 			},
 			getLinkIconUrl: (value) => {
-				const asset = getKnownIconAsset(value);
+				const base = getKnownIconAsset(value);
+				const asset = base ? this.knownIconAssets.get(base) : null;
 				if (asset) {
 					return this.getAssetUrl(asset);
 				}
@@ -297,10 +299,10 @@ export class MediaTrackerView extends ItemView {
 
 	private getRefreshTooltip(): string {
 		if (!this.plugin.settings.tmdbLastSync) {
-			return "Check latest episodes (never updated)";
+			return "Check latest updates (never updated)";
 		}
 		const date = new Date(this.plugin.settings.tmdbLastSync);
-		return `Check latest episodes (last updated ${date.toLocaleString()})`;
+		return `Check latest updates (last updated ${date.toLocaleString()})`;
 	}
 
 	private createRefreshIcon(): SVGSVGElement {
@@ -435,56 +437,6 @@ export class MediaTrackerView extends ItemView {
 		return item.progress ?? "";
 	}
 
-	private pruneFrontmatter(frontmatter: Record<string, unknown>) {
-		const hasSeasonEpisodes = (value: unknown): boolean => {
-			if (!value) {
-				return false;
-			}
-			if (typeof value === "string") {
-				try {
-					const parsed = JSON.parse(value) as Record<string, unknown>;
-					return parsed && typeof parsed === "object" && Object.keys(parsed).length > 0;
-				} catch {
-					return false;
-				}
-			}
-			if (typeof value === "object") {
-				return Object.keys(value as Record<string, unknown>).length > 0;
-			}
-			return false;
-		};
-
-		const type = frontmatter.type ?? frontmatter.media;
-		if (type && !frontmatter.type) {
-			frontmatter.type = type;
-		}
-		if (frontmatter.media) {
-			delete frontmatter.media;
-		}
-
-		if (frontmatter.royalRoad && !frontmatter.royalroad) {
-			frontmatter.royalroad = frontmatter.royalRoad;
-		}
-		if (frontmatter.royalRoad) {
-			delete frontmatter.royalRoad;
-		}
-
-		if (frontmatter.chapter && !frontmatter.progress) {
-			frontmatter.progress = frontmatter.chapter;
-		}
-		if (frontmatter.chapter) {
-			delete frontmatter.chapter;
-		}
-
-		const links = collectLinks(frontmatter);
-		setLinks(frontmatter, links);
-		migrateFrontmatter(frontmatter);
-
-		if (frontmatter.links && Array.isArray(frontmatter.links) && frontmatter.links.length === 0) {
-			delete frontmatter.links;
-		}
-	}
-
 	private openCardMenu(event: MouseEvent, item: MediaItem) {
 		const menu = new Menu();
 		menu.addItem((itemMenu) => itemMenu
@@ -493,11 +445,11 @@ export class MediaTrackerView extends ItemView {
 				void this.app.workspace.getLeaf("tab").openFile(item.file);
 			}));
 		menu.addSeparator();
-		if (TMDB_TYPES.has(item.type)) {
+		if (TMDB_TYPES.has(item.type) || item.type === "anime" || item.type === "manga") {
 			menu.addItem((itemMenu) => itemMenu
-				.setTitle("Check latest episode")
+				.setTitle(item.type === "manga" ? "Check latest chapter" : "Check latest episode")
 				.onClick(async () => {
-					await refreshSeriesLatest(this.app, this.plugin.settings, item, this.plugin.settings.tmdbMinIntervalMs);
+					await refreshMediaLatest(this.app, this.plugin.settings, item, this.plugin.settings.tmdbMinIntervalMs);
 					this.render();
 				}));
 			menu.addSeparator();
@@ -518,6 +470,15 @@ export class MediaTrackerView extends ItemView {
 
 		menu.addSeparator();
 		menu.addItem((itemMenu) => itemMenu
+			.setTitle("Clean note")
+			.setIcon("wand-2")
+			.onClick(async () => {
+				await cleanFrontmatter(this.app, item.file);
+				this.render();
+			}));
+
+		menu.addSeparator();
+		menu.addItem((itemMenu) => itemMenu
 			.setTitle("Delete note…")
 			.setIcon("trash")
 			.onClick(async () => {
@@ -534,8 +495,14 @@ export class MediaTrackerView extends ItemView {
 	private async ensureFavicons(items: MediaItem[]) {
 		const cache = this.plugin.settings.faviconCache ?? {};
 		for (const item of items) {
-			for (const link of item.links ?? []) {
-				if (getKnownIconAsset(link)) {
+			const links = [...(item.links ?? [])];
+			if (item.anilistId) {
+				links.push(getAnilistUrl(item.anilistId, item.type === "manga" ? "manga" : "anime"));
+			}
+			for (const link of links) {
+				const base = getKnownIconAsset(link);
+				const asset = base ? this.knownIconAssets.get(base) : null;
+				if (asset) {
 					continue;
 				}
 				const key = getFaviconCacheKey(link);
@@ -569,5 +536,32 @@ export class MediaTrackerView extends ItemView {
 	private getAssetUrl(fileName: string): string {
 		const pluginDir = `${this.app.vault.configDir}/plugins/${this.plugin.manifest.id}`;
 		return this.app.vault.adapter.getResourcePath(`${pluginDir}/assets/${fileName}`);
+	}
+
+	private async ensureKnownIconAssets() {
+		if (this.knownIconAssetsPromise) {
+			return this.knownIconAssetsPromise;
+		}
+		const pluginDir = `${this.app.vault.configDir}/plugins/${this.plugin.manifest.id}`;
+		this.knownIconAssetsPromise = (async () => {
+			for (const base of KNOWN_ICON_BASES) {
+				const extensions = ["svg", "png", "ico"];
+				for (const ext of extensions) {
+					try {
+						const name = `${base}.${ext}`;
+						const exists = await this.app.vault.adapter.exists(`${pluginDir}/assets/${name}`);
+						if (exists) {
+							this.knownIconAssets.set(base, name);
+							break;
+						}
+					} catch {
+						// Ignore missing assets or adapter errors.
+					}
+				}
+			}
+		})().finally(() => {
+			this.knownIconAssetsPromise = null;
+		});
+		return this.knownIconAssetsPromise;
 	}
 }

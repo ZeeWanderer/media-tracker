@@ -2,7 +2,7 @@ import {Modal, Setting} from "obsidian";
 import MediaTrackerPlugin from "../main";
 import {MediaStatus, MediaType, NewMediaDraft, NewMediaFieldConfig} from "../types";
 import {MEDIA_STATUS_LABELS} from "../utils/media";
-import {IMDB_TYPES, MEDIA_TYPE_LABELS, MEDIA_TYPES} from "../utils/mediaConfig";
+import {ANILIST_TYPES, IMDB_TYPES, MEDIA_TYPE_LABELS, MEDIA_TYPES} from "../utils/mediaConfig";
 import {createMediaNote} from "../utils/notes";
 import {NEW_MEDIA_BASE_FIELDS, NEW_MEDIA_TYPE_FIELDS} from "./newMediaForm";
 import {extractImdbId} from "../utils/links";
@@ -46,6 +46,9 @@ export class NewMediaModal extends Modal {
 						type: nextType,
 						imdbId: nextType === "series" || nextType === "anime" || nextType === "movie"
 							? this.draft.imdbId
+							: undefined,
+						anilistId: nextType === "anime" || nextType === "manga"
+							? this.draft.anilistId
 							: undefined,
 					};
 					this.render();
@@ -99,6 +102,19 @@ export class NewMediaModal extends Modal {
 		const section = container.createDiv({cls: "media-tracker__links-section"});
 		section.createEl("h3", {text: "Links"});
 
+		if (this.shouldShowAnilistField()) {
+			const anilistRow = section.createDiv({cls: "media-tracker__link-row"});
+			const anilistInput = anilistRow.createEl("input");
+			anilistInput.type = "text";
+			anilistInput.placeholder = "AniList ID or URL";
+			anilistInput.value = this.draft.anilistId ?? "";
+			anilistInput.addEventListener("input", () => {
+				this.updateAnilistId(anilistInput.value);
+			});
+			const anilistHint = anilistRow.createDiv({cls: "media-tracker__link-hint", text: "AniList"});
+			anilistHint.setAttribute("aria-hidden", "true");
+		}
+
 		if (this.shouldShowImdbField()) {
 			const imdbRow = section.createDiv({cls: "media-tracker__link-row"});
 			const imdbInput = imdbRow.createEl("input");
@@ -140,7 +156,11 @@ export class NewMediaModal extends Modal {
 	}
 
 	private shouldShowImdbField(): boolean {
-		return IMDB_TYPES.has(this.draft.type);
+		return IMDB_TYPES.has(this.draft.type) && this.draft.type !== "anime";
+	}
+
+	private shouldShowAnilistField(): boolean {
+		return ANILIST_TYPES.has(this.draft.type);
 	}
 
 	private updateImdbId(value: string) {
@@ -149,6 +169,14 @@ export class NewMediaModal extends Modal {
 		this.draft = {
 			...this.draft,
 			imdbId: imdbId || undefined,
+		};
+	}
+
+	private updateAnilistId(value: string) {
+		const trimmed = value.trim();
+		this.draft = {
+			...this.draft,
+			anilistId: trimmed.length ? trimmed : undefined,
 		};
 	}
 

@@ -1,7 +1,7 @@
 import {MediaItem, MediaStatus} from "../types";
 import {MEDIA_STATUS_LABELS} from "../utils/media";
-import {MEDIA_TYPE_LABELS, NOVEL_PROGRESS_TYPES, SEASON_EPISODE_TYPES, TMDB_TYPES} from "../utils/mediaConfig";
-import {extractImdbId, formatLinkLabel, getFaviconUrl, toLinkUrl} from "../utils/links";
+import {ANILIST_TYPES, MEDIA_TYPE_LABELS, NOVEL_PROGRESS_TYPES, SEASON_EPISODE_TYPES, TMDB_TYPES} from "../utils/mediaConfig";
+import {extractImdbId, formatLinkLabel, getAnilistUrl, getFaviconUrl, toLinkUrl} from "../utils/links";
 
 export type SortKey = "title" | "type" | "status" | "progress";
 export type SortDirection = "asc" | "desc";
@@ -25,6 +25,13 @@ export type MediaItemLike = Pick<
 	| "tmdbSeasonEpisodes"
 	| "tmdbLatestAirDate"
 	| "tmdbLatestName"
+	| "anilistId"
+	| "anilistLastChecked"
+	| "anilistLatestEpisode"
+	| "anilistNextEpisode"
+	| "anilistNextAiringAt"
+	| "anilistSeason"
+	| "anilistSeasonTotal"
 >;
 
 export type RenderHandlers = {
@@ -275,6 +282,15 @@ function createPlusIcon(): SVGSVGElement {
 }
 
 function renderLatestBadge(item: MediaItemLike): HTMLElement | null {
+	if (ANILIST_TYPES.has(item.type)) {
+		if (item.type === "anime" && item.anilistId && item.anilistLastChecked === undefined) {
+			return null;
+		}
+		const anilistBadge = renderAniListBadge(item);
+		if (anilistBadge) {
+			return anilistBadge;
+		}
+	}
 	if (!TMDB_TYPES.has(item.type)) {
 		return null;
 	}
@@ -306,6 +322,43 @@ function renderLatestBadge(item: MediaItemLike): HTMLElement | null {
 		return group;
 	}
 	return latestBadge;
+}
+
+function renderAniListBadge(item: MediaItemLike): HTMLElement | null {
+	if (item.type !== "anime") {
+		return null;
+	}
+	const latest = item.anilistLatestEpisode ?? getAniListLatestFromNext(item.anilistNextEpisode);
+	if (!latest) {
+		const next = item.anilistNextEpisode;
+		if (next) {
+			const label = item.anilistSeason
+				? `S${item.anilistSeason}E${next} Ann.`
+				: `E${next} Ann.`;
+			return createBadge(label);
+		}
+		return null;
+	}
+	let isNew = false;
+	if (item.episode !== undefined && latest > item.episode) {
+		isNew = true;
+	}
+	const latestLabel = item.anilistSeason
+		? `S${item.anilistSeason}E${latest}`
+		: `E${latest}`;
+	const badge = createBadge(isNew ? `New ${latestLabel}` : `Latest ${latestLabel}`, isNew);
+	if (item.anilistNextAiringAt) {
+		const date = new Date(item.anilistNextAiringAt * 1000);
+		setAttrSafe(badge, "title", `Next airs ${date.toLocaleString()}`);
+	}
+	return badge;
+}
+
+function getAniListLatestFromNext(nextEpisode?: number): number | null {
+	if (!nextEpisode || nextEpisode <= 1) {
+		return null;
+	}
+	return nextEpisode - 1;
 }
 
 function createLatestBadge(
@@ -368,6 +421,11 @@ function renderLinks(container: HTMLElement, item: MediaItemLike, handlers: Rend
 			count += renderLinkButton(container, normalized, handlers) ? 1 : 0;
 		}
 	}
+	const anilistId = item.anilistId;
+	if (anilistId) {
+		const url = getAnilistUrl(anilistId, item.type === "manga" ? "manga" : "anime");
+		count += renderLinkButton(container, url, handlers) ? 1 : 0;
+	}
 	return count;
 }
 
@@ -420,10 +478,14 @@ export function getNextProgressValue(item: MediaItemLike): string | null {
 		const isLatestSeason = item.tmdbLatestSeason !== undefined
 			&& item.tmdbLatestEpisode !== undefined
 			&& item.season === item.tmdbLatestSeason;
-		const seasonEpisodeCount = isLatestSeason
+		const anilistLatestEpisode = item.type === "anime" ? item.anilistLatestEpisode : undefined;
+		const seasonEpisodeCount = anilistLatestEpisode ?? (isLatestSeason
 			? item.tmdbLatestEpisode
-			: item.tmdbSeasonEpisodes?.[seasonKey] ?? item.tmdbLatestSeasonEpisodes;
+			: item.tmdbSeasonEpisodes?.[seasonKey] ?? item.tmdbLatestSeasonEpisodes);
 		if (seasonEpisodeCount && item.episode >= seasonEpisodeCount) {
+			if (anilistLatestEpisode) {
+				return null;
+			}
 			return isLatestSeason ? null : `S${item.season + 1}E1`;
 		}
 		return `S${item.season}E${item.episode + 1}`;

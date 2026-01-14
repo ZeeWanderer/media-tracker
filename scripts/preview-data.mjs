@@ -218,6 +218,14 @@ function parseMediaItem(filePath, frontmatter) {
 	const tmdbLatestEpisode = normalizeString(frontmatter.tmdbLatestEpisode);
 	const tmdbLatestAirDate = normalizeString(frontmatter.tmdbLatestAirDate);
 	const tmdbLatestName = normalizeString(frontmatter.tmdbLatestName);
+	const anilistId = normalizeString(frontmatter.anilistId ?? frontmatter.anilist);
+	const anilistLatestEpisode = normalizeString(frontmatter.anilistLatestEpisode);
+	const anilistNextEpisode = normalizeString(frontmatter.anilistNextEpisode);
+	const anilistNextAiringAt = normalizeString(frontmatter.anilistNextAiringAt);
+	const anilistChapters = normalizeString(frontmatter.anilistChapters);
+	const anilistVolumes = normalizeString(frontmatter.anilistVolumes);
+	const anilistSeason = normalizeString(frontmatter.anilistSeason);
+	const anilistSeasonTotal = normalizeString(frontmatter.anilistSeasonTotal);
 	const imdbId = getImdbIdFromFrontmatter(frontmatter);
 
 	return {
@@ -237,6 +245,14 @@ function parseMediaItem(filePath, frontmatter) {
 		tmdbLatestEpisode: tmdbLatestEpisode ? Number(tmdbLatestEpisode) : undefined,
 		tmdbLatestAirDate: tmdbLatestAirDate ?? undefined,
 		tmdbLatestName: tmdbLatestName ?? undefined,
+		anilistId: anilistId ? Number(anilistId) : undefined,
+		anilistLatestEpisode: anilistLatestEpisode ? Number(anilistLatestEpisode) : undefined,
+		anilistNextEpisode: anilistNextEpisode ? Number(anilistNextEpisode) : undefined,
+		anilistNextAiringAt: anilistNextAiringAt ? Number(anilistNextAiringAt) : undefined,
+		anilistChapters: anilistChapters ? Number(anilistChapters) : undefined,
+		anilistVolumes: anilistVolumes ? Number(anilistVolumes) : undefined,
+		anilistSeason: anilistSeason ? Number(anilistSeason) : undefined,
+		anilistSeasonTotal: anilistSeasonTotal ? Number(anilistSeasonTotal) : undefined,
 	};
 }
 

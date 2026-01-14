@@ -1,8 +1,9 @@
 import {App, Notice} from "obsidian";
 import {MediaTrackerSettings} from "../settings";
 import {NewMediaDraft} from "../types";
-import {collectLinks, filterImdbLinks, getImdbIdFromLinks, normalizeLinks, normalizeStoredLink, setLinks} from "./links";
-import {CURRENT_MEDIA_VERSION, migrateFrontmatter} from "./migration";
+import {collectLinks, extractAnilistId, filterAnilistLinks, filterImdbLinks, getImdbIdFromLinks, normalizeLinks, normalizeStoredLink, setLinks} from "./links";
+import {CURRENT_MEDIA_VERSION} from "./migration";
+import {updateFrontmatter} from "./frontmatter";
 
 function sanitizeFileName(name: string): string {
 	return name
@@ -49,7 +50,11 @@ export function buildFrontmatter(draft: NewMediaDraft): string {
 	const normalizedLinks = normalizeLinks(draft.links ?? []);
 	const imdbId = draft.imdbId ?? getImdbIdFromLinks(normalizedLinks);
 	pushLine(lines, "imdbId", imdbId);
-	const storedLinks = filterImdbLinks(normalizedLinks);
+	const anilistId = draft.anilistId ? extractAnilistId(draft.anilistId) : undefined;
+	if (anilistId) {
+		pushLine(lines, "anilistId", String(anilistId));
+	}
+	const storedLinks = filterImdbLinks(filterAnilistLinks(normalizedLinks));
 
 	if (storedLinks.length) {
 		lines.push("links:");
@@ -98,15 +103,11 @@ export async function createMediaNote(app: App, settings: MediaTrackerSettings, 
 
 export async function setNovelProgress(app: App, file: import("obsidian").TFile, value: string) {
 	const trimmed = value.trim();
-	await app.fileManager.processFrontMatter(file, (frontmatter) => {
-		if (!frontmatter) {
-			return;
-		}
+	await updateFrontmatter(app, file, (frontmatter) => {
 		if (!trimmed.length) {
 			delete frontmatter.progress;
 			delete frontmatter.progressLabel;
 			delete frontmatter.progressUnit;
-			migrateFrontmatter(frontmatter);
 			return;
 		}
 
@@ -117,25 +118,19 @@ export async function setNovelProgress(app: App, file: import("obsidian").TFile,
 			frontmatter.progress = numeric;
 			frontmatter.progressUnit = "ch";
 			delete frontmatter.progressLabel;
-			migrateFrontmatter(frontmatter);
 			return;
 		}
 
 		frontmatter.progressLabel = trimmed;
-		migrateFrontmatter(frontmatter);
 	});
 }
 
 export async function setSeriesProgress(app: App, file: import("obsidian").TFile, value: string) {
 	const trimmed = value.trim();
-	await app.fileManager.processFrontMatter(file, (frontmatter) => {
-		if (!frontmatter) {
-			return;
-		}
+	await updateFrontmatter(app, file, (frontmatter) => {
 		if (!trimmed.length) {
 			delete frontmatter.season;
 			delete frontmatter.episode;
-			migrateFrontmatter(frontmatter);
 			return;
 		}
 
@@ -147,7 +142,6 @@ export async function setSeriesProgress(app: App, file: import("obsidian").TFile
 		}
 		frontmatter.season = Number.parseInt(match[1], 10);
 		frontmatter.episode = Number.parseInt(match[2], 10);
-		migrateFrontmatter(frontmatter);
 	});
 }
 
@@ -156,12 +150,14 @@ export async function addMediaLink(
 	file: import("obsidian").TFile,
 	url: string,
 ) {
+	const anilistId = extractAnilistId(url);
 	const normalized = normalizeStoredLink(url);
 	if (!normalized) {
 		return;
 	}
-	await app.fileManager.processFrontMatter(file, (frontmatter) => {
-		if (!frontmatter) {
+	await updateFrontmatter(app, file, (frontmatter) => {
+		if (anilistId) {
+			frontmatter.anilistId = anilistId;
 			return;
 		}
 		const links = collectLinks(frontmatter);
@@ -169,6 +165,5 @@ export async function addMediaLink(
 			links.push(normalized);
 		}
 		setLinks(frontmatter, links);
-		migrateFrontmatter(frontmatter);
 	});
 }

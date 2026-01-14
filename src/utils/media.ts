@@ -1,7 +1,7 @@
 import {App, TFile} from "obsidian";
 import {MediaItem, MediaStatus, MediaType} from "../types";
 import {MediaTrackerSettings} from "../settings";
-import {collectLinks, getImdbIdFromFrontmatter, getImdbIdFromLinks} from "./links";
+import {collectLinks, getAnilistIdFromFrontmatter, getAnilistIdFromLinks, getImdbIdFromFrontmatter, getImdbIdFromLinks} from "./links";
 import {MEDIA_TYPE_LABELS, MEDIA_TYPES, NOVEL_PROGRESS_TYPES, SEASON_EPISODE_TYPES} from "./mediaConfig";
 const MEDIA_STATUSES: MediaStatus[] = ["planned", "active", "completed", "on-hold", "dropped"];
 
@@ -79,8 +79,23 @@ function parseMediaItem(file: TFile, app: App): MediaItem | null {
 	const tmdbSeasonEpisodes = parseSeasonEpisodes(frontmatter.tmdbSeasonEpisodes);
 	const tmdbLatestAirDate = normalizeString(frontmatter.tmdbLatestAirDate);
 	const tmdbLatestName = normalizeString(frontmatter.tmdbLatestName);
+	const anilistId = getAnilistIdFromFrontmatter(frontmatter);
+	const anilistIds = Array.isArray(frontmatter.anilistIds)
+		? frontmatter.anilistIds
+			.map((entry) => (typeof entry === "number" ? entry : Number(entry)))
+			.filter((entry) => Number.isFinite(entry))
+		: undefined;
+	const anilistLastChecked = normalizeString(frontmatter.anilistLastChecked);
+	const anilistLatestEpisode = normalizeString(frontmatter.anilistLatestEpisode);
+	const anilistNextEpisode = normalizeString(frontmatter.anilistNextEpisode);
+	const anilistNextAiringAt = normalizeString(frontmatter.anilistNextAiringAt);
+	const anilistChapters = normalizeString(frontmatter.anilistChapters);
+	const anilistVolumes = normalizeString(frontmatter.anilistVolumes);
+	const anilistSeason = normalizeString(frontmatter.anilistSeason);
+	const anilistSeasonTotal = normalizeString(frontmatter.anilistSeasonTotal);
 	const links = collectLinks(frontmatter);
 	const imdbId = getImdbIdFromFrontmatter(frontmatter) ?? getImdbIdFromLinks(links);
+	const fallbackAnilistId = getAnilistIdFromLinks(links);
 
 	return {
 		file,
@@ -96,6 +111,8 @@ function parseMediaItem(file: TFile, app: App): MediaItem | null {
 		year: year ? Number(year) : undefined,
 		links,
 		imdbId,
+		anilistId: anilistId ?? fallbackAnilistId,
+		anilistIds,
 		tmdbId: tmdbId ? Number(tmdbId) : undefined,
 		tmdbLastChecked: tmdbLastChecked ? Number(tmdbLastChecked) : undefined,
 		tmdbLatestSeason: tmdbLatestSeason ? Number(tmdbLatestSeason) : undefined,
@@ -104,6 +121,14 @@ function parseMediaItem(file: TFile, app: App): MediaItem | null {
 		tmdbSeasonEpisodes,
 		tmdbLatestAirDate: tmdbLatestAirDate ?? undefined,
 		tmdbLatestName: tmdbLatestName ?? undefined,
+		anilistLastChecked: anilistLastChecked ? Number(anilistLastChecked) : undefined,
+		anilistLatestEpisode: anilistLatestEpisode ? Number(anilistLatestEpisode) : undefined,
+		anilistNextEpisode: anilistNextEpisode ? Number(anilistNextEpisode) : undefined,
+		anilistNextAiringAt: anilistNextAiringAt ? Number(anilistNextAiringAt) : undefined,
+		anilistChapters: anilistChapters ? Number(anilistChapters) : undefined,
+		anilistVolumes: anilistVolumes ? Number(anilistVolumes) : undefined,
+		anilistSeason: anilistSeason ? Number(anilistSeason) : undefined,
+		anilistSeasonTotal: anilistSeasonTotal ? Number(anilistSeasonTotal) : undefined,
 	};
 }
 
