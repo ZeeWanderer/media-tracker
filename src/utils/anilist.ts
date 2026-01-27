@@ -281,10 +281,24 @@ export async function refreshAniListLatest(
 		: [];
 	const orderedIds = chain.map((entry) => entry.id);
 	const storedIds = orderedIds.length ? orderedIds : [anilistId];
-	const lastSeason = chain.length ? chain[chain.length - 1] : media;
-	const lastLatestEpisode = lastSeason ? deriveLatestEpisode(lastSeason) : undefined;
-	const lastNextEpisode = lastSeason?.nextAiringEpisode?.episode ?? undefined;
-	const lastNextAiringAt = lastSeason?.nextAiringEpisode?.airingAt ?? undefined;
+	let bestSeasonIndex = chain.length ? chain.length - 1 : 0;
+	let bestSeason = chain.length ? chain[bestSeasonIndex] : media;
+	for (let i = chain.length - 1; i >= 0; i -= 1) {
+		const season = chain[i];
+		if (!season) {
+			continue;
+		}
+		const hasNext = season.nextAiringEpisode?.episode !== undefined;
+		const latest = deriveLatestEpisode(season);
+		if (latest !== undefined || hasNext) {
+			bestSeasonIndex = i;
+			bestSeason = season;
+			break;
+		}
+	}
+	const lastLatestEpisode = bestSeason ? deriveLatestEpisode(bestSeason) : undefined;
+	const lastNextEpisode = bestSeason?.nextAiringEpisode?.episode ?? undefined;
+	const lastNextAiringAt = bestSeason?.nextAiringEpisode?.airingAt ?? undefined;
 	const seasonEpisodes = new Map<number, number>();
 	for (const [index, season] of chain.entries()) {
 		const seasonNumber = index + 1;
@@ -292,8 +306,12 @@ export async function refreshAniListLatest(
 			seasonEpisodes.set(seasonNumber, season.episodes);
 		}
 	}
-	const seasonNumber = chain.length ? chain.length : item.type === "anime" ? 1 : undefined;
 	const seasonTotal = chain.length ? chain.length : item.type === "anime" ? 1 : undefined;
+	const seasonNumber = chain.length
+		? bestSeasonIndex + 1
+		: item.type === "anime"
+			? 1
+			: undefined;
 	await updateFrontmatter(app, item.file, (frontmatter) => {
 		frontmatter.anilistId = anilistId;
 		frontmatter.anilistIds = storedIds;
@@ -351,8 +369,12 @@ export async function refreshAniListLatest(
 			new Notice(`${item.title}: AniList volumes ${media.volumes}.`);
 		}
 	} else if (item.type === "anime") {
-		const label = seasonNumber ? `S${seasonNumber}E${lastLatestEpisode ?? "?"}` : `E${lastLatestEpisode ?? "?"}`;
-		new Notice(`${item.title}: AniList latest ${label}.`);
+		if (lastLatestEpisode === undefined && seasonTotal && seasonNumber && seasonTotal > seasonNumber) {
+			new Notice(`${item.title}: AniList next season announced (S${seasonNumber + 1}).`);
+		} else {
+			const label = seasonNumber ? `S${seasonNumber}E${lastLatestEpisode ?? "?"}` : `E${lastLatestEpisode ?? "?"}`;
+			new Notice(`${item.title}: AniList latest ${label}.`);
+		}
 	}
 	if (minDelayMs > 0) {
 		await new Promise((resolve) => window.setTimeout(resolve, minDelayMs));
