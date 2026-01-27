@@ -226,6 +226,7 @@ function parseMediaItem(filePath, frontmatter) {
 	const anilistVolumes = normalizeString(frontmatter.anilistVolumes);
 	const anilistSeason = normalizeString(frontmatter.anilistSeason);
 	const anilistSeasonTotal = normalizeString(frontmatter.anilistSeasonTotal);
+	const anilistSeasonEpisodes = normalizeString(frontmatter.anilistSeasonEpisodes);
 	const imdbId = getImdbIdFromFrontmatter(frontmatter);
 
 	return {
@@ -253,6 +254,7 @@ function parseMediaItem(filePath, frontmatter) {
 		anilistVolumes: anilistVolumes ? Number(anilistVolumes) : undefined,
 		anilistSeason: anilistSeason ? Number(anilistSeason) : undefined,
 		anilistSeasonTotal: anilistSeasonTotal ? Number(anilistSeasonTotal) : undefined,
+		anilistSeasonEpisodes: anilistSeasonEpisodes ? JSON.parse(anilistSeasonEpisodes) : undefined,
 	};
 }
 

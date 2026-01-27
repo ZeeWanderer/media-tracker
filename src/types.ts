@@ -35,6 +35,7 @@ export interface MediaItem {
 	anilistVolumes?: number;
 	anilistSeason?: number;
 	anilistSeasonTotal?: number;
+	anilistSeasonEpisodes?: Record<string, number>;
 }
 
 export interface NewMediaDraft {

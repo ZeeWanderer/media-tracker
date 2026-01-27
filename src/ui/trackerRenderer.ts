@@ -32,6 +32,7 @@ export type MediaItemLike = Pick<
 	| "anilistNextAiringAt"
 	| "anilistSeason"
 	| "anilistSeasonTotal"
+	| "anilistSeasonEpisodes"
 >;
 
 export type RenderHandlers = {
@@ -340,7 +341,13 @@ function renderAniListBadge(item: MediaItemLike): HTMLElement | null {
 		return null;
 	}
 	let isNew = false;
-	if (item.episode !== undefined && latest > item.episode) {
+	if (item.anilistSeason && item.season !== undefined) {
+		if (item.season < item.anilistSeason) {
+			isNew = true;
+		} else if (item.season === item.anilistSeason && item.episode !== undefined && latest > item.episode) {
+			isNew = true;
+		}
+	} else if (item.episode !== undefined && latest > item.episode) {
 		isNew = true;
 	}
 	const latestLabel = item.anilistSeason
@@ -478,11 +485,19 @@ export function getNextProgressValue(item: MediaItemLike): string | null {
 		const isLatestSeason = item.tmdbLatestSeason !== undefined
 			&& item.tmdbLatestEpisode !== undefined
 			&& item.season === item.tmdbLatestSeason;
+		const anilistSeasonEpisodes = item.type === "anime" ? item.anilistSeasonEpisodes : undefined;
+		const anilistSeasonCount = anilistSeasonEpisodes?.[seasonKey];
 		const anilistLatestEpisode = item.type === "anime" ? item.anilistLatestEpisode : undefined;
-		const seasonEpisodeCount = anilistLatestEpisode ?? (isLatestSeason
+		const seasonEpisodeCount = anilistSeasonCount ?? anilistLatestEpisode ?? (isLatestSeason
 			? item.tmdbLatestEpisode
 			: item.tmdbSeasonEpisodes?.[seasonKey] ?? item.tmdbLatestSeasonEpisodes);
 		if (seasonEpisodeCount && item.episode >= seasonEpisodeCount) {
+			if (item.type === "anime" && anilistSeasonCount) {
+				if (item.anilistSeasonTotal && item.season < item.anilistSeasonTotal) {
+					return `S${item.season + 1}E1`;
+				}
+				return null;
+			}
 			if (anilistLatestEpisode) {
 				return null;
 			}

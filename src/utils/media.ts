@@ -93,6 +93,7 @@ function parseMediaItem(file: TFile, app: App): MediaItem | null {
 	const anilistVolumes = normalizeString(frontmatter.anilistVolumes);
 	const anilistSeason = normalizeString(frontmatter.anilistSeason);
 	const anilistSeasonTotal = normalizeString(frontmatter.anilistSeasonTotal);
+	const anilistSeasonEpisodes = parseSeasonEpisodes(frontmatter.anilistSeasonEpisodes);
 	const links = collectLinks(frontmatter);
 	const imdbId = getImdbIdFromFrontmatter(frontmatter) ?? getImdbIdFromLinks(links);
 	const fallbackAnilistId = getAnilistIdFromLinks(links);
@@ -129,6 +130,7 @@ function parseMediaItem(file: TFile, app: App): MediaItem | null {
 		anilistVolumes: anilistVolumes ? Number(anilistVolumes) : undefined,
 		anilistSeason: anilistSeason ? Number(anilistSeason) : undefined,
 		anilistSeasonTotal: anilistSeasonTotal ? Number(anilistSeasonTotal) : undefined,
+		anilistSeasonEpisodes,
 	};
 }
 
