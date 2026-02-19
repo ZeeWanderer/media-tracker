@@ -1,16 +1,28 @@
 import {ItemView, Menu, Notice, WorkspaceLeaf} from "obsidian";
 import MediaTrackerPlugin from "../main";
 import {MediaItem, MediaStatus, MediaType} from "../types";
-import {MEDIA_STATUS_LABELS, getMediaItems, getTitleSortKey} from "../utils/media";
-import {MEDIA_TYPE_LABELS, MEDIA_TYPES, SEASON_EPISODE_TYPES, TMDB_TYPES} from "../utils/mediaConfig";
+import {getTitleSortKey} from "../domain/media/readModel";
+import {MEDIA_TYPES, TMDB_TYPES} from "../domain/media/config";
+import {MEDIA_STATUS_LABELS} from "./mediaStatusLabels";
+import {MEDIA_TYPE_LABELS} from "./mediaTypeConfig";
 import {NewMediaModal} from "./newMediaModal";
-import {addMediaLink, setNovelProgress, setSeriesProgress} from "../utils/notes";
 import {LinkModal} from "./linkModal";
-import {refreshAllMedia, refreshMediaLatest} from "../utils/refresh";
+import {
+	addLinkToMediaNote,
+	deleteMediaNote,
+	listTrackedMedia,
+	listTrackedMediaFiles,
+	normalizeAllMediaNoteFrontmatter,
+	normalizeMediaNoteFrontmatter,
+	refreshTrackedMedia,
+	refreshTrackedMediaLatest,
+	updateMediaNoteProgress,
+	updateMediaNoteStatus,
+} from "../flows/media";
 import {renderCard, renderTableHeader, renderTableRow, type RenderHandlers, type SortDirection, type SortKey} from "./trackerRenderer";
-import {KNOWN_ICON_BASES, getAnilistUrl, getKnownIconAsset} from "../utils/links";
-import {fetchFaviconDataUrl, getCachedFavicon, getFaviconCacheKey} from "../utils/favicon";
-import {cleanFrontmatter, updateFrontmatter} from "../utils/frontmatter";
+import {getFaviconCacheKey} from "../infra/cache/faviconCache";
+import {KNOWN_ICON_BASES, getAnilistUrl, getKnownIconAsset} from "../domain/media/links";
+import {createVaultUpdateCommit, isVaultGitRepository} from "../infra/git/vaultGit";
 
 export const MEDIA_TRACKER_VIEW = "media-tracker-view";
 
@@ -27,9 +39,12 @@ export class MediaTrackerView extends ItemView {
 	private searchQuery = "";
 	private sortKey: SortKey = "title";
 	private sortDirection: SortDirection = "asc";
-	private faviconInflight = new Set<string>();
 	private knownIconAssets = new Map<string, string>();
 	private knownIconAssetsPromise: Promise<void> | null = null;
+	private gitRepository: boolean | null = null;
+	private gitRepositoryPromise: Promise<void> | null = null;
+	private isRefreshing = false;
+	private isCreatingGitCommit = false;
 
 	constructor(leaf: WorkspaceLeaf, plugin: MediaTrackerPlugin) {
 		super(leaf);
@@ -53,6 +68,13 @@ export class MediaTrackerView extends ItemView {
 		this.render();
 	}
 
+	private runTask(task: () => Promise<void>, errorMessage: string) {
+		void task().catch((error) => {
+			console.error(error);
+			new Notice(errorMessage);
+		});
+	}
+
 	render() {
 		const {contentEl} = this;
 		const activeEl = document.activeElement;
@@ -65,6 +87,7 @@ export class MediaTrackerView extends ItemView {
 		contentEl.empty();
 		contentEl.addClass("media-tracker");
 		void this.ensureKnownIconAssets();
+		this.ensureGitRepositoryState();
 
 		const header = contentEl.createDiv({cls: "media-tracker__header"});
 		header.createEl("h2", {text: "Media tracker"});
@@ -75,43 +98,48 @@ export class MediaTrackerView extends ItemView {
 		refreshButton.setAttr("title", this.getRefreshTooltip());
 		refreshButton.appendChild(this.createRefreshIcon());
 		const refreshLabel = refreshButton.createSpan({cls: "media-tracker__refresh-label"});
-		refreshButton.addEventListener("click", async () => {
-			const items = getMediaItems(this.app, this.plugin.settings);
-			await refreshAllMedia(this.app, this.plugin.settings, items, (current, total) => {
-				refreshLabel.setText(`${current}/${total}`);
-				refreshButton.addClass("media-tracker__refresh-button--progress");
-			});
-			this.plugin.settings.tmdbLastSync = Date.now();
-			await this.plugin.saveSettings();
-			refreshLabel.setText("");
-			refreshButton.removeClass("media-tracker__refresh-button--progress");
-			refreshButton.setAttr("title", this.getRefreshTooltip());
-			this.render();
+		if (this.isRefreshing) {
+			refreshButton.disabled = true;
+			refreshButton.addClass("is-disabled");
+		}
+		refreshButton.addEventListener("click", () => {
+			if (this.isRefreshing) {
+				return;
+			}
+			void this.runRefresh(refreshButton, refreshLabel);
 		});
 		const cleanupButton = actions.createEl("button", {cls: "media-tracker__button media-tracker__icon-button media-tracker__cleanup-button"});
 		cleanupButton.setAttr("aria-label", "Cleanup media frontmatter");
-		cleanupButton.setAttr("title", "Remove unused frontmatter fields");
+		cleanupButton.setAttr("title", "Normalize media frontmatter fields");
 		cleanupButton.appendChild(this.createCleanupIcon());
-		cleanupButton.addEventListener("click", async () => {
-			const confirmed = window.confirm("Clean up frontmatter for all media notes? This removes unknown fields.");
+		cleanupButton.addEventListener("click", () => {
+			const confirmed = window.confirm("Normalize frontmatter for all media notes? This standardizes media fields and links.");
 			if (!confirmed) {
 				return;
 			}
-			const items = getMediaItems(this.app, this.plugin.settings);
-			let changed = 0;
-			for (const item of items) {
-				let modified = false;
-				const before = JSON.stringify(this.app.metadataCache.getFileCache(item.file)?.frontmatter ?? {});
-				await cleanFrontmatter(this.app, item.file);
-				const after = JSON.stringify(this.app.metadataCache.getFileCache(item.file)?.frontmatter ?? {});
-				modified = before !== after;
-				if (modified) {
-					changed += 1;
-				}
-			}
-			new Notice(`Cleaned ${changed} of ${items.length} media notes.`);
-			this.render();
+			this.runTask(async () => {
+				const files = listTrackedMediaFiles(this.app, this.plugin.settings);
+				const changed = await normalizeAllMediaNoteFrontmatter(this.app, files);
+				new Notice(`Normalized ${changed} of ${files.length} media notes.`);
+				this.render();
+			}, "Failed to normalize frontmatter.");
 		});
+		if (this.gitRepository) {
+			const commitButton = actions.createEl("button", {cls: "media-tracker__button media-tracker__icon-button media-tracker__commit-button"});
+			commitButton.type = "button";
+			commitButton.setAttr("aria-label", "Create and push git commit");
+			commitButton.setAttr("title", "Create and push commit: [update] <datetime>");
+			commitButton.appendChild(this.createGitCommitIcon());
+			if (this.isCreatingGitCommit) {
+				commitButton.disabled = true;
+				commitButton.addClass("is-disabled");
+			}
+			commitButton.addEventListener("click", () => {
+				this.runTask(async () => {
+					await this.createGitCommit();
+				}, "Failed to create git commit.");
+			});
+		}
 		const addButton = actions.createEl("button", {cls: "media-tracker__button", text: "New entry"});
 		addButton.addEventListener("click", () => new NewMediaModal(this.plugin).open());
 
@@ -125,7 +153,7 @@ export class MediaTrackerView extends ItemView {
 			clearButton?.toggleClass("is-visible", !!searchInput.value);
 		}
 
-		const items = getMediaItems(this.app, this.plugin.settings);
+		const items = listTrackedMedia(this.app, this.plugin.settings);
 		const filtered = items
 			.filter((item) => this.matchesFilters(item))
 			.filter((item) => this.matchesSearch(item));
@@ -247,30 +275,30 @@ export class MediaTrackerView extends ItemView {
 
 	private getRenderHandlers(): RenderHandlers {
 		return {
-			onOpenNote: async (item) => {
+			onOpenNote: (item) => {
 				const fullItem = item as MediaItem;
-				await this.app.workspace.getLeaf("tab").openFile(fullItem.file);
+				this.runTask(async () => {
+					await this.app.workspace.getLeaf("tab").openFile(fullItem.file);
+				}, `Failed to open "${fullItem.title}".`);
 			},
 			onContextMenu: (event, item) => {
 				event.preventDefault();
 				this.openCardMenu(event, item as MediaItem);
 			},
-			onStatusChange: async (item, status) => {
+			onStatusChange: (item, status) => {
 				const fullItem = item as MediaItem;
-				await updateFrontmatter(this.app, fullItem.file, (frontmatter) => {
-					frontmatter.status = status;
-				});
+				this.runTask(async () => {
+					await updateMediaNoteStatus(this.app, fullItem.file, status);
+				}, `Failed to update status for "${fullItem.title}".`);
 			},
 			onProgressEdit: (target, item) => {
 				this.openProgressEditor(target, item as MediaItem);
 			},
-			onProgressAdvance: async (item, nextValue) => {
+			onProgressAdvance: (item, nextValue) => {
 				const fullItem = item as MediaItem;
-			if (SEASON_EPISODE_TYPES.has(fullItem.type)) {
-				await setSeriesProgress(this.app, fullItem.file, nextValue);
-			} else {
-				await setNovelProgress(this.app, fullItem.file, nextValue);
-			}
+				this.runTask(async () => {
+					await updateMediaNoteProgress(this.app, fullItem.file, fullItem.type, nextValue);
+				}, `Failed to update progress for "${fullItem.title}".`);
 			},
 			onLinkOpen: (url) => {
 				window.open(url, "_blank", "noopener");
@@ -281,7 +309,7 @@ export class MediaTrackerView extends ItemView {
 				if (asset) {
 					return this.getAssetUrl(asset);
 				}
-				const cached = getCachedFavicon(this.plugin.settings, value);
+				const cached = this.plugin.faviconCache.getMemoryCachedFavicon(value);
 				return cached ?? null;
 			},
 		};
@@ -303,6 +331,30 @@ export class MediaTrackerView extends ItemView {
 		}
 		const date = new Date(this.plugin.settings.tmdbLastSync);
 		return `Check latest updates (last updated ${date.toLocaleString()})`;
+	}
+
+	private async runRefresh(refreshButton: HTMLButtonElement, refreshLabel: HTMLSpanElement) {
+		this.isRefreshing = true;
+		refreshButton.disabled = true;
+		refreshButton.addClass("is-disabled");
+		try {
+			const items = listTrackedMedia(this.app, this.plugin.settings);
+			await refreshTrackedMedia(this.app, this.plugin.settings, items, (current, total) => {
+				refreshLabel.setText(`${current}/${total}`);
+				refreshButton.addClass("media-tracker__refresh-button--progress");
+			});
+			await this.plugin.saveSettings();
+		} catch (error) {
+			console.error(error);
+			new Notice("Failed to refresh media updates.");
+		} finally {
+			this.isRefreshing = false;
+			refreshLabel.setText("");
+			refreshButton.removeClass("media-tracker__refresh-button--progress");
+			refreshButton.removeClass("is-disabled");
+			refreshButton.disabled = false;
+			this.render();
+		}
 	}
 
 	private createRefreshIcon(): SVGSVGElement {
@@ -335,6 +387,100 @@ export class MediaTrackerView extends ItemView {
 		return svg;
 	}
 
+	private createGitCommitIcon(): SVGSVGElement {
+		const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+		svg.setAttribute("viewBox", "0 0 24 24");
+		svg.setAttribute("aria-hidden", "true");
+		svg.classList.add("media-tracker__commit-icon");
+
+		const center = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+		center.setAttribute("cx", "12");
+		center.setAttribute("cy", "12");
+		center.setAttribute("r", "4");
+		center.setAttribute("fill", "none");
+		center.setAttribute("stroke", "currentColor");
+		center.setAttribute("stroke-width", "2");
+		svg.appendChild(center);
+
+		const left = document.createElementNS("http://www.w3.org/2000/svg", "line");
+		left.setAttribute("x1", "3");
+		left.setAttribute("y1", "12");
+		left.setAttribute("x2", "8");
+		left.setAttribute("y2", "12");
+		left.setAttribute("stroke", "currentColor");
+		left.setAttribute("stroke-width", "2");
+		left.setAttribute("stroke-linecap", "round");
+		svg.appendChild(left);
+
+		const right = document.createElementNS("http://www.w3.org/2000/svg", "line");
+		right.setAttribute("x1", "16");
+		right.setAttribute("y1", "12");
+		right.setAttribute("x2", "21");
+		right.setAttribute("y2", "12");
+		right.setAttribute("stroke", "currentColor");
+		right.setAttribute("stroke-width", "2");
+		right.setAttribute("stroke-linecap", "round");
+		svg.appendChild(right);
+
+		return svg;
+	}
+
+	private ensureGitRepositoryState() {
+		if (this.gitRepository !== null || this.gitRepositoryPromise) {
+			return;
+		}
+		this.gitRepositoryPromise = (async () => {
+			this.gitRepository = await isVaultGitRepository(this.app);
+		})()
+			.catch((error: unknown) => {
+				console.error(error);
+				this.gitRepository = false;
+			})
+			.finally(() => {
+				this.gitRepositoryPromise = null;
+				this.render();
+			});
+	}
+
+	private async createGitCommit() {
+		if (this.isCreatingGitCommit) {
+			return;
+		}
+		this.isCreatingGitCommit = true;
+		this.render();
+		try {
+			const result = await createVaultUpdateCommit(this.app);
+			switch (result.status) {
+				case "created_and_pushed":
+					new Notice(result.message);
+					break;
+				case "created_push_failed":
+					new Notice(result.message, 10000);
+					break;
+				case "no_changes":
+					new Notice("No changes to commit.");
+					break;
+				case "needs_pull":
+					new Notice(result.message, 10000);
+					break;
+				case "not_repo":
+					this.gitRepository = false;
+					new Notice("Vault is not a Git repository.");
+					break;
+				case "git_missing":
+					new Notice("Git executable is not available.");
+					break;
+				case "failed":
+				default:
+					new Notice(result.message);
+					break;
+			}
+		} finally {
+			this.isCreatingGitCommit = false;
+			this.render();
+		}
+	}
+
 	private openProgressEditor(target: HTMLElement, item: MediaItem) {
 		const input = document.createElement("input");
 		input.type = "text";
@@ -344,11 +490,7 @@ export class MediaTrackerView extends ItemView {
 
 		const finish = async (save: boolean) => {
 			if (save) {
-				if (SEASON_EPISODE_TYPES.has(item.type)) {
-					await setSeriesProgress(this.app, item.file, input.value);
-				} else {
-					await setNovelProgress(this.app, item.file, input.value);
-				}
+				await updateMediaNoteProgress(this.app, item.file, item.type, input.value);
 			}
 			this.render();
 		};
@@ -370,50 +512,6 @@ export class MediaTrackerView extends ItemView {
 		target.replaceWith(input);
 		input.focus();
 		input.select();
-	}
-
-	private getNextProgressValue(item: MediaItem): string | null {
-		if (SEASON_EPISODE_TYPES.has(item.type) && item.season !== undefined && item.episode !== undefined) {
-			return `S${item.season}E${item.episode + 1}`;
-		}
-		const raw = item.progressRaw?.trim();
-		if (raw && /^\d+(?:\.\d+)?$/.test(raw)) {
-			return this.incrementNumericString(raw);
-		}
-		const label = item.progressLabel?.trim() ?? item.progress?.trim();
-		if (!label) {
-			return null;
-		}
-		const match = label.match(/^(?:ch|chapter)?\s*(\d+(?:\.\d+)?)$/i);
-		if (!match) {
-			return null;
-		}
-		const value = match[1];
-		if (!value) {
-			return null;
-		}
-		return this.incrementNumericString(value);
-	}
-
-	private incrementNumericString(value: string): string {
-		if (value.includes(".")) {
-			const parts = value.split(".");
-			const tail = parts[parts.length - 1];
-			if (!tail) {
-				return value;
-			}
-			const next = Number.parseInt(tail, 10);
-			if (Number.isNaN(next)) {
-				return value;
-			}
-			parts[parts.length - 1] = String(next + 1);
-			return parts.join(".");
-		}
-		const next = Number.parseInt(value, 10);
-		if (Number.isNaN(next)) {
-			return value;
-		}
-		return String(next + 1);
 	}
 
 	private sortItems(items: MediaItem[]): MediaItem[] {
@@ -448,9 +546,11 @@ export class MediaTrackerView extends ItemView {
 		if (TMDB_TYPES.has(item.type) || item.type === "anime" || item.type === "manga") {
 			menu.addItem((itemMenu) => itemMenu
 				.setTitle(item.type === "manga" ? "Check latest chapter" : "Check latest episode")
-				.onClick(async () => {
-					await refreshMediaLatest(this.app, this.plugin.settings, item, this.plugin.settings.tmdbMinIntervalMs);
-					this.render();
+				.onClick(() => {
+					this.runTask(async () => {
+						await refreshTrackedMediaLatest(this.app, this.plugin.settings, item);
+						this.render();
+					}, `Failed to refresh latest updates for "${item.title}".`);
 				}));
 			menu.addSeparator();
 		}
@@ -461,8 +561,10 @@ export class MediaTrackerView extends ItemView {
 			itemMenu.onClick(() => {
 				new LinkModal(this.app, {
 					title: "Add link",
-					onSubmit: async (url) => {
-						await addMediaLink(this.app, item.file, url);
+					onSubmit: (url) => {
+						this.runTask(async () => {
+							await addLinkToMediaNote(this.app, item.file, url);
+						}, `Failed to add link for "${item.title}".`);
 					},
 				}).open();
 			});
@@ -472,28 +574,32 @@ export class MediaTrackerView extends ItemView {
 		menu.addItem((itemMenu) => itemMenu
 			.setTitle("Clean note")
 			.setIcon("wand-2")
-			.onClick(async () => {
-				await cleanFrontmatter(this.app, item.file);
-				this.render();
+			.onClick(() => {
+				this.runTask(async () => {
+					await normalizeMediaNoteFrontmatter(this.app, item.file);
+					this.render();
+				}, `Failed to clean "${item.title}".`);
 			}));
 
 		menu.addSeparator();
 		menu.addItem((itemMenu) => itemMenu
 			.setTitle("Delete note…")
 			.setIcon("trash")
-			.onClick(async () => {
+			.onClick(() => {
 				const confirmed = window.confirm(`Delete "${item.title}"?`);
 				if (!confirmed) {
 					return;
 				}
-				await this.app.vault.delete(item.file);
+				this.runTask(async () => {
+					await deleteMediaNote(this.app, item.file);
+				}, `Failed to delete "${item.title}".`);
 			}));
 
 		menu.showAtMouseEvent(event);
 	}
 
 	private async ensureFavicons(items: MediaItem[]) {
-		const cache = this.plugin.settings.faviconCache ?? {};
+		const pending: Promise<string | null>[] = [];
 		for (const item of items) {
 			const links = [...(item.links ?? [])];
 			if (item.anilistId) {
@@ -506,30 +612,23 @@ export class MediaTrackerView extends ItemView {
 					continue;
 				}
 				const key = getFaviconCacheKey(link);
-				if (!key || cache[key] || this.faviconInflight.has(key)) {
+				if (!key) {
 					continue;
 				}
-				this.faviconInflight.add(key);
-				void this.fetchAndStoreFavicon(link);
+				if (this.plugin.faviconCache.getMemoryCachedFavicon(link)) {
+					continue;
+				}
+				pending.push(this.plugin.faviconCache.ensureFavicon(link));
 			}
 		}
-	}
 
-	private async fetchAndStoreFavicon(link: string) {
-		const result = await fetchFaviconDataUrl(link);
-		const key = result?.key;
-		if (key) {
-			this.plugin.settings.faviconCache = {
-				...this.plugin.settings.faviconCache,
-				[key]: {dataUrl: result.dataUrl, updated: Date.now()},
-			};
-			await this.plugin.saveSettings();
-			this.render();
-			this.faviconInflight.delete(key);
+		if (!pending.length) {
 			return;
 		}
-		if (key) {
-			this.faviconInflight.delete(key);
+
+		const results = await Promise.all(pending);
+		if (results.some((value) => value !== null)) {
+			this.render();
 		}
 	}
 

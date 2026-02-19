@@ -6,7 +6,9 @@ export function registerCommands(plugin: MediaTrackerPlugin) {
 	plugin.addCommand({
 		id: "open-media-tracker",
 		name: "Open media tracker",
-		callback: () => openMediaTracker(plugin),
+		callback: () => {
+			void openMediaTracker(plugin);
+		},
 	});
 
 	plugin.addCommand({
@@ -21,5 +23,5 @@ export function registerCommands(plugin: MediaTrackerPlugin) {
 export async function openMediaTracker(plugin: MediaTrackerPlugin) {
 	const leaf = plugin.app.workspace.getLeaf("tab");
 	await leaf.setViewState({type: MEDIA_TRACKER_VIEW, active: true});
-	plugin.app.workspace.revealLeaf(leaf);
+	await plugin.app.workspace.revealLeaf(leaf);
 }

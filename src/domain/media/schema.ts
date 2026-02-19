@@ -1,0 +1,116 @@
+import type {MediaStatus, MediaType} from "../../types";
+
+export const CURRENT_MEDIA_SCHEMA_VERSION = 3;
+export const MEDIA_SCHEMA_VERSION_KEY = "mediaTrackerVersion";
+
+export const MEDIA_TYPE_VALUES: MediaType[] = ["novel", "manga", "series", "anime", "movie"];
+export const MEDIA_STATUS_VALUES: MediaStatus[] = ["planned", "active", "completed", "on-hold", "dropped"];
+
+export const MEDIA_TYPE_SET = new Set<MediaType>(MEDIA_TYPE_VALUES);
+export const MEDIA_STATUS_SET = new Set<MediaStatus>(MEDIA_STATUS_VALUES);
+
+export type MediaSchemaVersion = typeof CURRENT_MEDIA_SCHEMA_VERSION;
+
+export interface MediaSnapshotV3 {
+	version: MediaSchemaVersion;
+	type?: MediaType;
+	status: MediaStatus;
+	title?: string;
+	author?: string;
+	progress?: string;
+	progressLabel?: string;
+	progressUnit?: string;
+	season?: number;
+	episode?: number;
+	year?: number;
+	links: string[];
+	imdbId?: string;
+	tmdbId?: number;
+	tmdbLastChecked?: number;
+	tmdbLatestSeason?: number;
+	tmdbLatestEpisode?: number;
+	tmdbLatestSeasonEpisodes?: number;
+	tmdbSeasonEpisodes?: Record<string, number>;
+	tmdbLatestAirDate?: string;
+	tmdbLatestName?: string;
+	anilistId?: number;
+	anilistIds?: number[];
+	anilistLastChecked?: number;
+	anilistLatestEpisode?: number;
+	anilistNextEpisode?: number;
+	anilistNextAiringAt?: number;
+	anilistChapters?: number;
+	anilistVolumes?: number;
+	anilistSeason?: number;
+	anilistSeasonTotal?: number;
+	anilistSeasonEpisodes?: Record<string, number>;
+}
+
+export type LatestMediaSnapshot = MediaSnapshotV3;
+
+export type MediaFrontmatterFieldKind =
+	| "string"
+	| "number"
+	| "string-array"
+	| "number-array"
+	| "number-record";
+
+export type MediaFrontmatterFieldSchema = {
+	kind: MediaFrontmatterFieldKind;
+	required?: boolean;
+	enumValues?: readonly string[];
+	description?: string;
+};
+
+export type MediaFrontmatterSchema = {
+	version: MediaSchemaVersion;
+	versionKey: string;
+	fields: Record<string, MediaFrontmatterFieldSchema>;
+};
+
+export const MEDIA_FRONTMATTER_SCHEMA: MediaFrontmatterSchema = {
+	version: CURRENT_MEDIA_SCHEMA_VERSION,
+	versionKey: MEDIA_SCHEMA_VERSION_KEY,
+	fields: {
+		type: {
+			kind: "string",
+			required: true,
+			enumValues: MEDIA_TYPE_VALUES,
+			description: "Media kind.",
+		},
+		status: {
+			kind: "string",
+			enumValues: MEDIA_STATUS_VALUES,
+			description: "Tracking status.",
+		},
+		title: {kind: "string"},
+		author: {kind: "string"},
+		progress: {kind: "string"},
+		progressLabel: {kind: "string"},
+		progressUnit: {kind: "string"},
+		season: {kind: "number"},
+		episode: {kind: "number"},
+		year: {kind: "number"},
+		imdbId: {kind: "string"},
+		anilistId: {kind: "number"},
+		anilistIds: {kind: "number-array"},
+		links: {kind: "string-array"},
+		tmdbId: {kind: "number"},
+		tmdbLastChecked: {kind: "number"},
+		tmdbLatestSeason: {kind: "number"},
+		tmdbLatestEpisode: {kind: "number"},
+		tmdbLatestSeasonEpisodes: {kind: "number"},
+		tmdbSeasonEpisodes: {kind: "number-record"},
+		tmdbLatestAirDate: {kind: "string"},
+		tmdbLatestName: {kind: "string"},
+		anilistLastChecked: {kind: "number"},
+		anilistLatestEpisode: {kind: "number"},
+		anilistNextEpisode: {kind: "number"},
+		anilistNextAiringAt: {kind: "number"},
+		anilistChapters: {kind: "number"},
+		anilistVolumes: {kind: "number"},
+		anilistSeason: {kind: "number"},
+		anilistSeasonTotal: {kind: "number"},
+		anilistSeasonEpisodes: {kind: "number-record"},
+	},
+};

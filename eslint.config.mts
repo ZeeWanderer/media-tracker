@@ -22,6 +22,27 @@ export default tseslint.config(
 		},
 	},
 	...obsidianmd.configs.recommended,
+	{
+		files: ["scripts/**/*.mjs"],
+		languageOptions: {
+			globals: {
+				...globals.node,
+			},
+		},
+		rules: {
+			"no-unused-vars": "off",
+		},
+	},
+	{
+		files: ["src/**/*.ts"],
+		rules: {
+			"obsidianmd/ui/sentence-case": "off",
+			"obsidianmd/settings-tab/no-manual-html-headings": "off",
+			"obsidianmd/commands/no-plugin-id-in-command-id": "off",
+			"obsidianmd/commands/no-plugin-name-in-command-name": "off",
+			"no-alert": "off",
+		},
+	},
 	globalIgnores([
 		"node_modules",
 		"dist",
@@ -30,5 +51,7 @@ export default tseslint.config(
 		"version-bump.mjs",
 		"versions.json",
 		"main.js",
+		"preview/data.js",
+		"preview/preview.js",
 	]),
 );

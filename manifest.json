@@ -5,5 +5,5 @@
 	"minAppVersion": "1.5.0",
 	"description": "Track novels, series, and movies with a dedicated vault-first dashboard.",
 	"author": "MediaTracker",
-	"isDesktopOnly": false
+	"isDesktopOnly": true
 }

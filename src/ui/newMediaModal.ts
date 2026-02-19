@@ -1,18 +1,19 @@
-import {Modal, Setting} from "obsidian";
+import {Modal, Notice, Setting} from "obsidian";
 import MediaTrackerPlugin from "../main";
 import {MediaStatus, MediaType, NewMediaDraft, NewMediaFieldConfig} from "../types";
-import {MEDIA_STATUS_LABELS} from "../utils/media";
-import {ANILIST_TYPES, IMDB_TYPES, MEDIA_TYPE_LABELS, MEDIA_TYPES} from "../utils/mediaConfig";
-import {createMediaNote} from "../utils/notes";
+import {MEDIA_STATUS_LABELS} from "./mediaStatusLabels";
+import {MEDIA_TYPE_LABELS} from "./mediaTypeConfig";
+import {ANILIST_TYPES, IMDB_TYPES, MEDIA_TYPES} from "../domain/media/config";
+import {createMediaNoteFromDraft, updateMediaDraftType} from "../flows/media";
 import {NEW_MEDIA_BASE_FIELDS, NEW_MEDIA_TYPE_FIELDS} from "./newMediaForm";
-import {extractImdbId} from "../utils/links";
+import {extractImdbId} from "../domain/media/links";
 
 export class NewMediaModal extends Modal {
 	plugin: MediaTrackerPlugin;
 	private draft: NewMediaDraft = {
 		title: "",
 		type: "novel",
-		status: "planned",
+		status: "active",
 		links: [],
 	};
 
@@ -23,6 +24,13 @@ export class NewMediaModal extends Modal {
 
 	onOpen() {
 		this.render();
+	}
+
+	private runTask(task: () => Promise<void>, errorMessage: string) {
+		void task().catch((error) => {
+			console.error(error);
+			new Notice(errorMessage);
+		});
 	}
 
 	private render() {
@@ -41,16 +49,7 @@ export class NewMediaModal extends Modal {
 				dropdown.setValue(this.draft.type);
 				dropdown.onChange((value) => {
 					const nextType = value as MediaType;
-					this.draft = {
-						...this.draft,
-						type: nextType,
-						imdbId: nextType === "series" || nextType === "anime" || nextType === "movie"
-							? this.draft.imdbId
-							: undefined,
-						anilistId: nextType === "anime" || nextType === "manga"
-							? this.draft.anilistId
-							: undefined,
-					};
+					this.draft = updateMediaDraftType(this.draft, nextType);
 					this.render();
 				});
 			});
@@ -73,9 +72,13 @@ export class NewMediaModal extends Modal {
 
 		const actions = contentEl.createDiv({cls: "media-tracker__modal-actions"});
 		const createButton = actions.createEl("button", {text: "Create note", cls: "media-tracker__button"});
-		createButton.addEventListener("click", async () => {
-			await createMediaNote(this.app, this.plugin.settings, this.draft);
-			this.close();
+		createButton.addEventListener("click", () => {
+			this.runTask(async () => {
+				const created = await createMediaNoteFromDraft(this.app, this.plugin.settings, this.draft);
+				if (created) {
+					this.close();
+				}
+			}, "Failed to create media note.");
 		});
 	}
 

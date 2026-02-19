@@ -2,13 +2,16 @@ import {Plugin} from "obsidian";
 import {DEFAULT_SETTINGS, MediaTrackerSettings, MediaTrackerSettingTab} from "./settings";
 import {openMediaTracker, registerCommands} from "./commands";
 import {MEDIA_TRACKER_VIEW, MediaTrackerView} from "./ui/trackerView";
+import {DesktopFaviconCache} from "./infra/cache/faviconCache";
 
 export default class MediaTrackerPlugin extends Plugin {
 	settings: MediaTrackerSettings;
+	faviconCache!: DesktopFaviconCache;
 	private refreshTimer: number | null = null;
 
 	async onload() {
 		await this.loadSettings();
+		this.faviconCache = new DesktopFaviconCache(this.app, this.manifest.id);
 
 		this.registerView(MEDIA_TRACKER_VIEW, (leaf) => new MediaTrackerView(leaf, this));
 		registerCommands(this);
@@ -25,10 +28,20 @@ export default class MediaTrackerPlugin extends Plugin {
 		if (this.refreshTimer !== null) {
 			window.clearTimeout(this.refreshTimer);
 		}
+		this.faviconCache?.dispose();
 	}
 
 	async loadSettings() {
-		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData() as Partial<MediaTrackerSettings>);
+		const loaded = await this.loadData() as (Partial<MediaTrackerSettings> & {faviconCache?: unknown}) | null;
+		let hasLegacyFaviconCache = false;
+		if (loaded && typeof loaded === "object" && "faviconCache" in loaded) {
+			delete loaded.faviconCache;
+			hasLegacyFaviconCache = true;
+		}
+		this.settings = Object.assign({}, DEFAULT_SETTINGS, loaded ?? {});
+		if (hasLegacyFaviconCache) {
+			await this.saveData(this.settings);
+		}
 	}
 
 	async saveSettings() {

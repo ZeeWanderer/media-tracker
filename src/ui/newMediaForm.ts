@@ -1,5 +1,5 @@
 import {NewMediaFieldConfig} from "../types";
-import {MEDIA_TYPE_FIELDS} from "../utils/mediaConfig";
+import {MEDIA_TYPE_FIELDS} from "./mediaTypeConfig";
 
 export const NEW_MEDIA_BASE_FIELDS: NewMediaFieldConfig[] = [
 	{

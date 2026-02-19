@@ -46,8 +46,6 @@ export const MEDIA_TYPE_CONFIGS: Array<{type: MediaType; label: string; fields: 
 	{type: "movie", label: "Movie", fields: MOVIE_FIELDS},
 ];
 
-export const MEDIA_TYPES: MediaType[] = MEDIA_TYPE_CONFIGS.map((config) => config.type);
-
 export const MEDIA_TYPE_LABELS = Object.fromEntries(
 	MEDIA_TYPE_CONFIGS.map((config) => [config.type, config.label]),
 ) as Record<MediaType, string>;
@@ -55,9 +53,3 @@ export const MEDIA_TYPE_LABELS = Object.fromEntries(
 export const MEDIA_TYPE_FIELDS = Object.fromEntries(
 	MEDIA_TYPE_CONFIGS.map((config) => [config.type, config.fields]),
 ) as Record<MediaType, NewMediaFieldConfig[]>;
-
-export const TMDB_TYPES = new Set<MediaType>(["series", "anime"]);
-export const ANILIST_TYPES = new Set<MediaType>(["anime", "manga"]);
-export const IMDB_TYPES = new Set<MediaType>(["series", "anime", "movie"]);
-export const NOVEL_PROGRESS_TYPES = new Set<MediaType>(["novel", "manga"]);
-export const SEASON_EPISODE_TYPES = new Set<MediaType>(["series", "anime"]);

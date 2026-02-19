@@ -1,7 +1,7 @@
-import {MEDIA_STATUS_LABELS} from "../utils/media";
-import {MEDIA_TYPE_LABELS} from "../utils/mediaConfig";
+import {getKnownIconAsset} from "../domain/media/links";
+import {MEDIA_STATUS_LABELS} from "../ui/mediaStatusLabels";
+import {MEDIA_TYPE_LABELS} from "../ui/mediaTypeConfig";
 import {NEW_MEDIA_BASE_FIELDS, NEW_MEDIA_TYPE_FIELDS} from "../ui/newMediaForm";
-import {getKnownIconAsset} from "../utils/links";
 import {renderCard, renderTableHeader, renderTableRow, type MediaItemLike, type RenderHandlers, type SortDirection, type SortKey} from "../ui/trackerRenderer";
 
 type PreviewPayload = {

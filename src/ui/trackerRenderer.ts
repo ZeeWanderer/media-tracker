@@ -1,7 +1,8 @@
 import {MediaItem, MediaStatus} from "../types";
-import {MEDIA_STATUS_LABELS} from "../utils/media";
-import {ANILIST_TYPES, MEDIA_TYPE_LABELS, NOVEL_PROGRESS_TYPES, SEASON_EPISODE_TYPES, TMDB_TYPES} from "../utils/mediaConfig";
-import {extractImdbId, formatLinkLabel, getAnilistUrl, getFaviconUrl, toLinkUrl} from "../utils/links";
+import {ANILIST_TYPES, NOVEL_PROGRESS_TYPES, SEASON_EPISODE_TYPES, TMDB_TYPES} from "../domain/media/config";
+import {extractImdbId, formatLinkLabel, getAnilistUrl, getFaviconUrl, toLinkUrl} from "../domain/media/links";
+import {MEDIA_STATUS_LABELS} from "./mediaStatusLabels";
+import {MEDIA_TYPE_LABELS} from "./mediaTypeConfig";
 
 export type SortKey = "title" | "type" | "status" | "progress";
 export type SortDirection = "asc" | "desc";

@@ -375,6 +375,12 @@
 	display: block;
 }
 
+.media-tracker__commit-button svg {
+	width: 18px;
+	height: 18px;
+	display: block;
+}
+
 .media-tracker__cleanup-icon {
 	width: 18px;
 	height: 18px;

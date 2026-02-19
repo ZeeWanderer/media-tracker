@@ -1,9 +1,8 @@
 import {App, TFile} from "obsidian";
-import {MediaItem, MediaStatus, MediaType} from "../types";
-import {MediaTrackerSettings} from "../settings";
+import {MediaItem, MediaStatus, MediaType} from "../../types";
+import {MediaTrackerSettings} from "../../settings";
+import {MEDIA_STATUSES, MEDIA_TYPES, NOVEL_PROGRESS_TYPES, SEASON_EPISODE_TYPES} from "./config";
 import {collectLinks, getAnilistIdFromFrontmatter, getAnilistIdFromLinks, getImdbIdFromFrontmatter, getImdbIdFromLinks} from "./links";
-import {MEDIA_TYPE_LABELS, MEDIA_TYPES, NOVEL_PROGRESS_TYPES, SEASON_EPISODE_TYPES} from "./mediaConfig";
-const MEDIA_STATUSES: MediaStatus[] = ["planned", "active", "completed", "on-hold", "dropped"];
 
 function normalizeString(value: unknown): string | undefined {
 	if (typeof value === "string") {
@@ -53,6 +52,36 @@ function buildProgress(type: MediaType, frontmatter: Record<string, unknown>): s
 		return year ? `Year ${year}` : undefined;
 	}
 	return undefined;
+}
+
+function parseSeasonEpisodes(value: unknown): Record<string, number> | undefined {
+	if (!value) {
+		return undefined;
+	}
+	if (typeof value === "string") {
+		try {
+			const parsed = JSON.parse(value) as Record<string, number>;
+			return sanitizeSeasonEpisodes(parsed);
+		} catch {
+			return undefined;
+		}
+	}
+	if (typeof value === "object") {
+		return sanitizeSeasonEpisodes(value as Record<string, number>);
+	}
+	return undefined;
+}
+
+function sanitizeSeasonEpisodes(map: Record<string, number> | null): Record<string, number> | undefined {
+	if (!map) {
+		return undefined;
+	}
+	const entries = Object.entries(map)
+		.filter(([key, val]) => Number.isFinite(Number(key)) && Number.isFinite(Number(val)));
+	if (!entries.length) {
+		return undefined;
+	}
+	return Object.fromEntries(entries.map(([key, val]) => [String(Number(key)), Number(val)]));
 }
 
 function parseMediaItem(file: TFile, app: App): MediaItem | null {
@@ -134,37 +163,12 @@ function parseMediaItem(file: TFile, app: App): MediaItem | null {
 	};
 }
 
-function parseSeasonEpisodes(value: unknown): Record<string, number> | undefined {
-	if (!value) {
-		return undefined;
-	}
-	if (typeof value === "string") {
-		try {
-			const parsed = JSON.parse(value) as Record<string, number>;
-			return sanitizeSeasonEpisodes(parsed);
-		} catch {
-			return undefined;
-		}
-	}
-	if (typeof value === "object") {
-		return sanitizeSeasonEpisodes(value as Record<string, number>);
-	}
-	return undefined;
+export function getTitleSortKey(title: string): string {
+	const trimmed = title.trim();
+	return trimmed.replace(/^the\s+/i, "");
 }
 
-function sanitizeSeasonEpisodes(map: Record<string, number> | null): Record<string, number> | undefined {
-	if (!map) {
-		return undefined;
-	}
-	const entries = Object.entries(map)
-		.filter(([key, val]) => Number.isFinite(Number(key)) && Number.isFinite(Number(val)));
-	if (!entries.length) {
-		return undefined;
-	}
-	return Object.fromEntries(entries.map(([key, val]) => [String(Number(key)), Number(val)]));
-}
-
-export function getMediaItems(app: App, settings: MediaTrackerSettings): MediaItem[] {
+export function listMediaItems(app: App, settings: MediaTrackerSettings): MediaItem[] {
 	const baseFolder = normalizeString(settings.mediaFolder) ?? "Media";
 	const files = app.vault.getFiles().filter((file) => file.path.startsWith(`${baseFolder}/`));
 	const items = files
@@ -173,17 +177,4 @@ export function getMediaItems(app: App, settings: MediaTrackerSettings): MediaIt
 
 	items.sort((a, b) => getTitleSortKey(a.title).localeCompare(getTitleSortKey(b.title)));
 	return items;
-}
-
-export const MEDIA_STATUS_LABELS: Record<MediaStatus, string> = {
-	planned: "Planned",
-	active: "Active",
-	completed: "Completed",
-	"on-hold": "On hold",
-	dropped: "Dropped",
-};
-
-export function getTitleSortKey(title: string): string {
-	const trimmed = title.trim();
-	return trimmed.replace(/^the\s+/i, "");
 }

@@ -7,7 +7,6 @@ export interface MediaTrackerSettings {
 	tmdbApiKey: string;
 	tmdbMinIntervalMs: number;
 	tmdbLastSync?: number;
-	faviconCache: Record<string, {dataUrl: string; updated: number}>;
 }
 
 export const DEFAULT_SETTINGS: MediaTrackerSettings = {
@@ -15,7 +14,6 @@ export const DEFAULT_SETTINGS: MediaTrackerSettings = {
 	displayMode: "cards",
 	tmdbApiKey: "",
 	tmdbMinIntervalMs: 300,
-	faviconCache: {},
 };
 
 export class MediaTrackerSettingTab extends PluginSettingTab {
