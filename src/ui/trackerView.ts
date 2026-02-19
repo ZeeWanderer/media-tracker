@@ -1,6 +1,6 @@
 import {ItemView, Menu, Notice, WorkspaceLeaf} from "obsidian";
 import MediaTrackerPlugin from "../main";
-import {MediaItem, MediaStatus, MediaType} from "../types";
+import {MediaItem, MediaStatus, MediaType, UpdateLogRun} from "../types";
 import {getTitleSortKey} from "../domain/media/readModel";
 import {MEDIA_TYPES, TMDB_TYPES} from "../domain/media/config";
 import {MEDIA_STATUS_LABELS} from "./mediaStatusLabels";
@@ -10,6 +10,7 @@ import {LinkModal} from "./linkModal";
 import {
 	addLinkToMediaNote,
 	deleteMediaNote,
+	formatRefreshRunSummary,
 	listTrackedMedia,
 	listTrackedMediaFiles,
 	normalizeAllMediaNoteFrontmatter,
@@ -23,6 +24,7 @@ import {renderCard, renderTableHeader, renderTableRow, type RenderHandlers, type
 import {getFaviconCacheKey} from "../infra/cache/faviconCache";
 import {KNOWN_ICON_BASES, getAnilistUrl, getKnownIconAsset} from "../domain/media/links";
 import {createVaultUpdateCommit, isVaultGitRepository} from "../infra/git/vaultGit";
+import {openMediaUpdateLog} from "./updateLogView";
 
 export const MEDIA_TRACKER_VIEW = "media-tracker-view";
 
@@ -30,6 +32,15 @@ const TYPE_FILTERS: Array<MediaType | "all"> = ["all", ...MEDIA_TYPES];
 const STATUS_FILTERS: Array<MediaStatus | "all"> = ["all", "planned", "active", "completed", "on-hold", "dropped"];
 
 type DisplayMode = "cards" | "details";
+type TaskLogContext = {
+	scope?: string;
+	event: string;
+	startMessage?: string;
+	successMessage?: string;
+	meta?: Record<string, unknown>;
+	logStart?: boolean;
+	logSuccess?: boolean;
+};
 
 export class MediaTrackerView extends ItemView {
 	plugin: MediaTrackerPlugin;
@@ -68,11 +79,45 @@ export class MediaTrackerView extends ItemView {
 		this.render();
 	}
 
-	private runTask(task: () => Promise<void>, errorMessage: string) {
-		void task().catch((error) => {
-			console.error(error);
-			new Notice(errorMessage);
-		});
+	private getItemLogMeta(item: MediaItem): Record<string, unknown> {
+		return {
+			title: item.title,
+			filePath: item.file.path,
+			type: item.type,
+			status: item.status,
+		};
+	}
+
+	private runTask(task: () => Promise<void>, errorMessage: string, logContext?: TaskLogContext) {
+		const scope = logContext?.scope ?? "ui.tracker";
+		if (logContext?.logStart) {
+			this.plugin.logger.info(
+				scope,
+				`${logContext.event}_started`,
+				logContext.startMessage ?? "Started action.",
+				logContext.meta,
+			);
+		}
+		void task()
+			.then(() => {
+				if (!logContext || logContext.logSuccess === false) {
+					return;
+				}
+				this.plugin.logger.info(
+					scope,
+					`${logContext.event}_succeeded`,
+					logContext.successMessage ?? "Completed action.",
+					logContext.meta,
+				);
+			})
+			.catch((error) => {
+				console.error(error);
+				this.plugin.logger.error(scope, logContext ? `${logContext.event}_failed` : "task_failed", errorMessage, {
+					...(logContext?.meta ?? {}),
+					error: error instanceof Error ? error.message : String(error),
+				});
+				new Notice(errorMessage);
+			});
 	}
 
 	render() {
@@ -101,12 +146,21 @@ export class MediaTrackerView extends ItemView {
 		if (this.isRefreshing) {
 			refreshButton.disabled = true;
 			refreshButton.addClass("is-disabled");
+			refreshButton.addClass("media-tracker__refresh-button--running");
 		}
 		refreshButton.addEventListener("click", () => {
 			if (this.isRefreshing) {
 				return;
 			}
 			void this.runRefresh(refreshButton, refreshLabel);
+		});
+		const updateLogButton = actions.createEl("button", {cls: "media-tracker__button media-tracker__icon-button media-tracker__update-log-button"});
+		updateLogButton.type = "button";
+		updateLogButton.setAttr("aria-label", "Open update log");
+		updateLogButton.setAttr("title", "Open update log");
+		updateLogButton.appendChild(this.createUpdateLogIcon());
+		updateLogButton.addEventListener("click", () => {
+			void openMediaUpdateLog(this.plugin);
 		});
 		const cleanupButton = actions.createEl("button", {cls: "media-tracker__button media-tracker__icon-button media-tracker__cleanup-button"});
 		cleanupButton.setAttr("aria-label", "Cleanup media frontmatter");
@@ -117,12 +171,21 @@ export class MediaTrackerView extends ItemView {
 			if (!confirmed) {
 				return;
 			}
+			const files = listTrackedMediaFiles(this.app, this.plugin.settings);
 			this.runTask(async () => {
-				const files = listTrackedMediaFiles(this.app, this.plugin.settings);
 				const changed = await normalizeAllMediaNoteFrontmatter(this.app, files);
+				this.plugin.logger.info("ui.tracker", "cleanup_all_counts", "Frontmatter normalization results.", {
+					total: files.length,
+					changed,
+				});
 				new Notice(`Normalized ${changed} of ${files.length} media notes.`);
 				this.render();
-			}, "Failed to normalize frontmatter.");
+			}, "Failed to normalize frontmatter.", {
+				event: "cleanup_all",
+				logStart: true,
+				successMessage: "Finished frontmatter normalization for all tracked notes.",
+				meta: {total: files.length},
+			});
 		});
 		if (this.gitRepository) {
 			const commitButton = actions.createEl("button", {cls: "media-tracker__button media-tracker__icon-button media-tracker__commit-button"});
@@ -287,9 +350,19 @@ export class MediaTrackerView extends ItemView {
 			},
 			onStatusChange: (item, status) => {
 				const fullItem = item as MediaItem;
+				const previousStatus = fullItem.status;
 				this.runTask(async () => {
 					await updateMediaNoteStatus(this.app, fullItem.file, status);
-				}, `Failed to update status for "${fullItem.title}".`);
+				}, `Failed to update status for "${fullItem.title}".`, {
+					event: "status_update",
+					logStart: true,
+					successMessage: `Updated status for "${fullItem.title}".`,
+					meta: {
+						...this.getItemLogMeta(fullItem),
+						fromStatus: previousStatus,
+						toStatus: status,
+					},
+				});
 			},
 			onProgressEdit: (target, item) => {
 				this.openProgressEditor(target, item as MediaItem);
@@ -298,7 +371,16 @@ export class MediaTrackerView extends ItemView {
 				const fullItem = item as MediaItem;
 				this.runTask(async () => {
 					await updateMediaNoteProgress(this.app, fullItem.file, fullItem.type, nextValue);
-				}, `Failed to update progress for "${fullItem.title}".`);
+				}, `Failed to update progress for "${fullItem.title}".`, {
+					event: "progress_advance",
+					logStart: true,
+					successMessage: `Updated progress for "${fullItem.title}".`,
+					meta: {
+						...this.getItemLogMeta(fullItem),
+						previousProgress: fullItem.progress ?? "",
+						nextProgress: nextValue,
+					},
+				});
 			},
 			onLinkOpen: (url) => {
 				window.open(url, "_blank", "noopener");
@@ -337,24 +419,79 @@ export class MediaTrackerView extends ItemView {
 		this.isRefreshing = true;
 		refreshButton.disabled = true;
 		refreshButton.addClass("is-disabled");
+		refreshButton.addClass("media-tracker__refresh-button--running");
 		try {
 			const items = listTrackedMedia(this.app, this.plugin.settings);
-			await refreshTrackedMedia(this.app, this.plugin.settings, items, (current, total) => {
+			this.plugin.logger.info("refresh", "bulk_start", "Starting bulk media refresh.", {count: items.length});
+			const run = await refreshTrackedMedia(this.app, this.plugin.settings, items, (current, total) => {
 				refreshLabel.setText(`${current}/${total}`);
 				refreshButton.addClass("media-tracker__refresh-button--progress");
 			});
+			this.appendUpdateRun(run);
 			await this.plugin.saveSettings();
+			this.notifyRefreshResult(run);
+			this.plugin.logger.info("refresh", "bulk_complete", "Bulk media refresh completed.", {
+				total: run.total,
+				updated: run.updated,
+				unchanged: run.unchanged,
+				failed: run.failed,
+				skipped: run.skipped,
+				durationMs: run.durationMs,
+			});
+			if (run.failed > 0 && this.plugin.settings.autoOpenUpdateLogOnFailure) {
+				await openMediaUpdateLog(this.plugin);
+			}
 		} catch (error) {
 			console.error(error);
+			this.plugin.logger.error("refresh", "bulk_failed", "Bulk media refresh failed.", {
+				error: error instanceof Error ? error.message : String(error),
+			});
 			new Notice("Failed to refresh media updates.");
 		} finally {
 			this.isRefreshing = false;
 			refreshLabel.setText("");
 			refreshButton.removeClass("media-tracker__refresh-button--progress");
+			refreshButton.removeClass("media-tracker__refresh-button--running");
 			refreshButton.removeClass("is-disabled");
 			refreshButton.disabled = false;
 			this.render();
 		}
+	}
+
+	private appendUpdateRun(run: UpdateLogRun) {
+		const MAX_RUNS = 25;
+		const MAX_ENTRIES_PER_RUN = 1500;
+		const trimmedRun: UpdateLogRun = {
+			...run,
+			entries: run.entries.slice(0, MAX_ENTRIES_PER_RUN),
+		};
+		const currentRuns = this.plugin.settings.updateLogRuns ?? [];
+		this.plugin.settings.updateLogRuns = [trimmedRun, ...currentRuns].slice(0, MAX_RUNS);
+	}
+
+	private notifyRefreshResult(run: UpdateLogRun) {
+		const mode = this.plugin.settings.updateNotificationMode;
+		if (mode === "quiet") {
+			if (run.failed > 0) {
+				new Notice(`Update complete with ${run.failed} failure${run.failed === 1 ? "" : "s"}. Open update log for details.`);
+			}
+			return;
+		}
+
+		const summary = formatRefreshRunSummary(run);
+		if (mode === "summary") {
+			new Notice(summary);
+			return;
+		}
+
+		const failed = run.entries.filter((entry) => entry.status === "failed").slice(0, 3);
+		if (!failed.length) {
+			new Notice(summary);
+			return;
+		}
+		const details = failed.map((entry) => `${entry.title}: ${entry.message}`).join(" | ");
+		const suffix = run.failed > failed.length ? " | More failures in update log." : "";
+		new Notice(`${summary} ${details}${suffix}`, 10000);
 	}
 
 	private createRefreshIcon(): SVGSVGElement {
@@ -369,6 +506,45 @@ export class MediaTrackerView extends ItemView {
 		);
 		path.setAttribute("fill", "currentColor");
 		svg.appendChild(path);
+		return svg;
+	}
+
+	private createUpdateLogIcon(): SVGSVGElement {
+		const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+		svg.setAttribute("viewBox", "0 0 24 24");
+		svg.setAttribute("aria-hidden", "true");
+		svg.classList.add("media-tracker__update-log-icon");
+
+		const top = document.createElementNS("http://www.w3.org/2000/svg", "line");
+		top.setAttribute("x1", "6");
+		top.setAttribute("y1", "7");
+		top.setAttribute("x2", "18");
+		top.setAttribute("y2", "7");
+		top.setAttribute("stroke", "currentColor");
+		top.setAttribute("stroke-width", "2");
+		top.setAttribute("stroke-linecap", "round");
+		svg.appendChild(top);
+
+		const middle = document.createElementNS("http://www.w3.org/2000/svg", "line");
+		middle.setAttribute("x1", "6");
+		middle.setAttribute("y1", "12");
+		middle.setAttribute("x2", "18");
+		middle.setAttribute("y2", "12");
+		middle.setAttribute("stroke", "currentColor");
+		middle.setAttribute("stroke-width", "2");
+		middle.setAttribute("stroke-linecap", "round");
+		svg.appendChild(middle);
+
+		const bottom = document.createElementNS("http://www.w3.org/2000/svg", "line");
+		bottom.setAttribute("x1", "6");
+		bottom.setAttribute("y1", "17");
+		bottom.setAttribute("x2", "18");
+		bottom.setAttribute("y2", "17");
+		bottom.setAttribute("stroke", "currentColor");
+		bottom.setAttribute("stroke-width", "2");
+		bottom.setAttribute("stroke-linecap", "round");
+		svg.appendChild(bottom);
+
 		return svg;
 	}
 
@@ -434,6 +610,9 @@ export class MediaTrackerView extends ItemView {
 		})()
 			.catch((error: unknown) => {
 				console.error(error);
+				this.plugin.logger.error("git", "repo_check_failed", "Failed to check git repository state.", {
+					error: error instanceof Error ? error.message : String(error),
+				});
 				this.gitRepository = false;
 			})
 			.finally(() => {
@@ -452,26 +631,33 @@ export class MediaTrackerView extends ItemView {
 			const result = await createVaultUpdateCommit(this.app);
 			switch (result.status) {
 				case "created_and_pushed":
+					this.plugin.logger.info("git", "commit_pushed", result.message);
 					new Notice(result.message);
 					break;
 				case "created_push_failed":
+					this.plugin.logger.warn("git", "commit_push_failed", result.message);
 					new Notice(result.message, 10000);
 					break;
 				case "no_changes":
+					this.plugin.logger.info("git", "commit_no_changes", "No changes to commit.");
 					new Notice("No changes to commit.");
 					break;
 				case "needs_pull":
+					this.plugin.logger.warn("git", "commit_needs_pull", result.message);
 					new Notice(result.message, 10000);
 					break;
 				case "not_repo":
 					this.gitRepository = false;
+					this.plugin.logger.warn("git", "commit_not_repo", "Vault is not a Git repository.");
 					new Notice("Vault is not a Git repository.");
 					break;
 				case "git_missing":
+					this.plugin.logger.error("git", "git_missing", "Git executable is not available.");
 					new Notice("Git executable is not available.");
 					break;
 				case "failed":
 				default:
+					this.plugin.logger.error("git", "commit_failed", result.message);
 					new Notice(result.message);
 					break;
 			}
@@ -487,12 +673,31 @@ export class MediaTrackerView extends ItemView {
 		input.classList.add("media-tracker__progress-input");
 		input.value = item.progress ?? "";
 		input.size = Math.max(4, input.value.length);
+		let finished = false;
 
-		const finish = async (save: boolean) => {
-			if (save) {
-				await updateMediaNoteProgress(this.app, item.file, item.type, input.value);
+		const finish = (save: boolean) => {
+			if (finished) {
+				return;
 			}
-			this.render();
+			finished = true;
+			if (!save) {
+				this.render();
+				return;
+			}
+			const nextProgress = input.value;
+			this.runTask(async () => {
+				await updateMediaNoteProgress(this.app, item.file, item.type, nextProgress);
+				this.render();
+			}, `Failed to update progress for "${item.title}".`, {
+				event: "progress_edit",
+				logStart: true,
+				successMessage: `Updated progress for "${item.title}".`,
+				meta: {
+					...this.getItemLogMeta(item),
+					previousProgress: item.progress ?? "",
+					nextProgress,
+				},
+			});
 		};
 
 		input.addEventListener("keydown", (event) => {
@@ -548,9 +753,27 @@ export class MediaTrackerView extends ItemView {
 				.setTitle(item.type === "manga" ? "Check latest chapter" : "Check latest episode")
 				.onClick(() => {
 					this.runTask(async () => {
-						await refreshTrackedMediaLatest(this.app, this.plugin.settings, item);
+						const result = await refreshTrackedMediaLatest(this.app, this.plugin.settings, item);
+						const meta = {
+							...this.getItemLogMeta(item),
+							provider: result.provider,
+							status: result.status,
+						};
+						if (result.status === "failed") {
+							this.plugin.logger.warn("refresh", "single_result", `${item.title}: ${result.message}`, meta);
+						} else {
+							this.plugin.logger.info("refresh", "single_result", `${item.title}: ${result.message}`, meta);
+						}
+						new Notice(`${item.title}: ${result.message}`, result.status === "failed" ? 10000 : 4000);
 						this.render();
-					}, `Failed to refresh latest updates for "${item.title}".`);
+					}, `Failed to refresh latest updates for "${item.title}".`, {
+						scope: "refresh",
+						event: "single_refresh",
+						logStart: true,
+						logSuccess: false,
+						startMessage: `Refreshing latest data for "${item.title}".`,
+						meta: this.getItemLogMeta(item),
+					});
 				}));
 			menu.addSeparator();
 		}
@@ -564,7 +787,15 @@ export class MediaTrackerView extends ItemView {
 					onSubmit: (url) => {
 						this.runTask(async () => {
 							await addLinkToMediaNote(this.app, item.file, url);
-						}, `Failed to add link for "${item.title}".`);
+						}, `Failed to add link for "${item.title}".`, {
+							event: "add_link",
+							logStart: true,
+							successMessage: `Added link for "${item.title}".`,
+							meta: {
+								...this.getItemLogMeta(item),
+								url,
+							},
+						});
 					},
 				}).open();
 			});
@@ -578,7 +809,12 @@ export class MediaTrackerView extends ItemView {
 				this.runTask(async () => {
 					await normalizeMediaNoteFrontmatter(this.app, item.file);
 					this.render();
-				}, `Failed to clean "${item.title}".`);
+				}, `Failed to clean "${item.title}".`, {
+					event: "clean_note",
+					logStart: true,
+					successMessage: `Cleaned "${item.title}".`,
+					meta: this.getItemLogMeta(item),
+				});
 			}));
 
 		menu.addSeparator();
@@ -592,7 +828,12 @@ export class MediaTrackerView extends ItemView {
 				}
 				this.runTask(async () => {
 					await deleteMediaNote(this.app, item.file);
-				}, `Failed to delete "${item.title}".`);
+				}, `Failed to delete "${item.title}".`, {
+					event: "delete_note",
+					logStart: true,
+					successMessage: `Deleted "${item.title}".`,
+					meta: this.getItemLogMeta(item),
+				});
 			}));
 
 		menu.showAtMouseEvent(event);

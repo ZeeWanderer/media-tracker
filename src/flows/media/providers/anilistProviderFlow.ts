@@ -1,8 +1,14 @@
-import {App, Notice, TFile} from "obsidian";
+import {App, TFile} from "obsidian";
 import {MediaItem} from "../../../types";
 import {lookupAniListLatest} from "../../../infra/api/anilistApi";
 import {processMediaFrontmatter} from "../../../domain/media";
 import {extractAnilistId} from "../../../domain/media/links";
+
+export type AniListRefreshResult = {
+	provider: "anilist";
+	status: "updated" | "unchanged" | "failed";
+	message: string;
+};
 
 function delay(ms: number): Promise<void> {
 	if (ms <= 0) {
@@ -19,18 +25,42 @@ async function updateMediaFrontmatter(
 	await processMediaFrontmatter(app, file, updater);
 }
 
+function sameNumberArray(a: number[] | undefined, b: number[] | undefined): boolean {
+	const left = a ?? [];
+	const right = b ?? [];
+	if (left.length !== right.length) {
+		return false;
+	}
+	return left.every((value, index) => value === right[index]);
+}
+
+function sameNumberRecord(a: Record<string, number> | undefined, b: Record<string, number> | undefined): boolean {
+	const leftEntries = Object.entries(a ?? {}).sort((x, y) => Number(x[0]) - Number(y[0]));
+	const rightEntries = Object.entries(b ?? {}).sort((x, y) => Number(x[0]) - Number(y[0]));
+	if (leftEntries.length !== rightEntries.length) {
+		return false;
+	}
+	return leftEntries.every(([leftKey, leftVal], index) => {
+		const [rightKey, rightVal] = rightEntries[index] ?? [];
+		return leftKey === rightKey && leftVal === rightVal;
+	});
+}
+
 export async function refreshAniListLatest(
 	app: App,
 	item: MediaItem,
 	minDelayMs: number,
-): Promise<boolean> {
+): Promise<AniListRefreshResult> {
 	const linkId = item.anilistId ? String(item.anilistId) : undefined;
 	const parsed = linkId ? extractAnilistId(linkId) : undefined;
 	const fallbackId = item.anilistIds?.[0];
 	const anilistId = parsed ?? item.anilistId ?? fallbackId;
 	if (!anilistId) {
-		new Notice("AniList ID not found.");
-		return false;
+		return {
+			provider: "anilist",
+			status: "failed",
+			message: "AniList ID not found.",
+		};
 	}
 
 	const result = await lookupAniListLatest({
@@ -42,17 +72,25 @@ export async function refreshAniListLatest(
 		maxDepth: 10,
 	});
 	if (!result) {
-		new Notice(`${item.title}: AniList request failed.`);
-		return false;
+		return {
+			provider: "anilist",
+			status: "failed",
+			message: "AniList request failed.",
+		};
 	}
 
 	const hasEpisodeData = result.latestEpisode !== undefined || result.nextEpisode !== undefined;
+	const storedIds = result.seasonIds.length ? result.seasonIds : [anilistId];
+	const seasonIdsChanged = !sameNumberArray(item.anilistIds, storedIds);
+
 	if (item.type === "anime" && !hasEpisodeData) {
+		const changed = seasonIdsChanged
+			|| item.anilistLatestEpisode !== undefined
+			|| item.anilistNextEpisode !== undefined
+			|| item.anilistNextAiringAt !== undefined;
 		await updateMediaFrontmatter(app, item.file, (frontmatter) => {
 			frontmatter.anilistId = anilistId;
-			if (result.seasonIds.length) {
-				frontmatter.anilistIds = result.seasonIds;
-			}
+			frontmatter.anilistIds = storedIds;
 			frontmatter.anilistLastChecked = Date.now();
 			if ("anilistLatestEpisode" in frontmatter) {
 				delete frontmatter.anilistLatestEpisode;
@@ -64,92 +102,108 @@ export async function refreshAniListLatest(
 				delete frontmatter.anilistNextAiringAt;
 			}
 		});
-		new Notice(`${item.title}: AniList has no episode data.`);
-		return false;
+		await delay(minDelayMs);
+		return {
+			provider: "anilist",
+			status: changed ? "updated" : "unchanged",
+			message: "AniList has no episode data.",
+		};
 	}
 
-	const storedIds = result.seasonIds.length ? result.seasonIds : [anilistId];
+	const nextLatestEpisode = result.latestEpisode;
+	const nextEpisode = result.nextEpisode;
+	const nextAiringAt = result.nextAiringAt;
+	const nextChapters = typeof result.media.chapters === "number" ? result.media.chapters : undefined;
+	const nextVolumes = typeof result.media.volumes === "number" ? result.media.volumes : undefined;
+	const nextSeason = result.seasonNumber;
+	const nextSeasonTotal = result.seasonTotal;
+	const nextSeasonEpisodes = result.seasonEpisodes;
+
+	const changed = item.type === "manga"
+		? nextChapters !== item.anilistChapters || nextVolumes !== item.anilistVolumes
+		: nextLatestEpisode !== item.anilistLatestEpisode
+			|| nextEpisode !== item.anilistNextEpisode
+			|| nextAiringAt !== item.anilistNextAiringAt
+			|| nextSeason !== item.anilistSeason
+			|| nextSeasonTotal !== item.anilistSeasonTotal
+			|| !sameNumberRecord(nextSeasonEpisodes, item.anilistSeasonEpisodes)
+			|| seasonIdsChanged;
+
 	await updateMediaFrontmatter(app, item.file, (frontmatter) => {
 		frontmatter.anilistId = anilistId;
 		frontmatter.anilistIds = storedIds;
 		frontmatter.anilistLastChecked = Date.now();
 
-		if (result.latestEpisode !== undefined) {
-			frontmatter.anilistLatestEpisode = result.latestEpisode;
+		if (nextLatestEpisode !== undefined) {
+			frontmatter.anilistLatestEpisode = nextLatestEpisode;
 		} else if ("anilistLatestEpisode" in frontmatter) {
 			delete frontmatter.anilistLatestEpisode;
 		}
 
-		if (result.nextEpisode !== undefined) {
-			frontmatter.anilistNextEpisode = result.nextEpisode;
+		if (nextEpisode !== undefined) {
+			frontmatter.anilistNextEpisode = nextEpisode;
 		} else if ("anilistNextEpisode" in frontmatter) {
 			delete frontmatter.anilistNextEpisode;
 		}
 
-		if (result.nextAiringAt !== undefined) {
-			frontmatter.anilistNextAiringAt = result.nextAiringAt;
+		if (nextAiringAt !== undefined) {
+			frontmatter.anilistNextAiringAt = nextAiringAt;
 		} else if ("anilistNextAiringAt" in frontmatter) {
 			delete frontmatter.anilistNextAiringAt;
 		}
 
-		if (typeof result.media.chapters === "number") {
-			frontmatter.anilistChapters = result.media.chapters;
+		if (nextChapters !== undefined) {
+			frontmatter.anilistChapters = nextChapters;
 		} else if ("anilistChapters" in frontmatter) {
 			delete frontmatter.anilistChapters;
 		}
 
-		if (typeof result.media.volumes === "number") {
-			frontmatter.anilistVolumes = result.media.volumes;
+		if (nextVolumes !== undefined) {
+			frontmatter.anilistVolumes = nextVolumes;
 		} else if ("anilistVolumes" in frontmatter) {
 			delete frontmatter.anilistVolumes;
 		}
 
-		if (result.seasonNumber !== undefined) {
-			frontmatter.anilistSeason = result.seasonNumber;
-			if (result.seasonTotal !== undefined) {
-				frontmatter.anilistSeasonTotal = result.seasonTotal;
-			} else if ("anilistSeasonTotal" in frontmatter) {
-				delete frontmatter.anilistSeasonTotal;
-			}
-			if (result.seasonEpisodes) {
-				frontmatter.anilistSeasonEpisodes = JSON.stringify(result.seasonEpisodes);
-			} else if ("anilistSeasonEpisodes" in frontmatter) {
-				delete frontmatter.anilistSeasonEpisodes;
-			}
-		} else {
-			if ("anilistSeason" in frontmatter) {
-				delete frontmatter.anilistSeason;
-			}
-			if ("anilistSeasonTotal" in frontmatter) {
-				delete frontmatter.anilistSeasonTotal;
-			}
-			if ("anilistSeasonEpisodes" in frontmatter) {
-				delete frontmatter.anilistSeasonEpisodes;
-			}
+		if (nextSeason !== undefined) {
+			frontmatter.anilistSeason = nextSeason;
+		} else if ("anilistSeason" in frontmatter) {
+			delete frontmatter.anilistSeason;
+		}
+
+		if (nextSeasonTotal !== undefined) {
+			frontmatter.anilistSeasonTotal = nextSeasonTotal;
+		} else if ("anilistSeasonTotal" in frontmatter) {
+			delete frontmatter.anilistSeasonTotal;
+		}
+
+		if (nextSeasonEpisodes) {
+			frontmatter.anilistSeasonEpisodes = JSON.stringify(nextSeasonEpisodes);
+		} else if ("anilistSeasonEpisodes" in frontmatter) {
+			delete frontmatter.anilistSeasonEpisodes;
 		}
 	});
 
-	if (item.type === "manga") {
-		if (typeof result.media.chapters === "number") {
-			new Notice(`${item.title}: AniList chapters ${result.media.chapters}.`);
-		}
-		if (typeof result.media.volumes === "number") {
-			new Notice(`${item.title}: AniList volumes ${result.media.volumes}.`);
-		}
-	} else if (item.type === "anime") {
-		if (result.latestEpisode === undefined
-			&& result.seasonTotal
-			&& result.seasonNumber
-			&& result.seasonTotal > result.seasonNumber) {
-			new Notice(`${item.title}: AniList next season announced (S${result.seasonNumber + 1}).`);
-		} else {
-			const label = result.seasonNumber
-				? `S${result.seasonNumber}E${result.latestEpisode ?? "?"}`
-				: `E${result.latestEpisode ?? "?"}`;
-			new Notice(`${item.title}: AniList latest ${label}.`);
-		}
-	}
-
 	await delay(minDelayMs);
-	return true;
+	if (item.type === "manga") {
+		if (nextChapters !== undefined || nextVolumes !== undefined) {
+			return {
+				provider: "anilist",
+				status: changed ? "updated" : "unchanged",
+				message: `AniList chapters ${nextChapters ?? "?"}, volumes ${nextVolumes ?? "?"}.`,
+			};
+		}
+		return {
+			provider: "anilist",
+			status: changed ? "updated" : "unchanged",
+			message: "AniList metadata refreshed.",
+		};
+	}
+	const label = nextSeason
+		? `S${nextSeason}E${nextLatestEpisode ?? "?"}`
+		: `E${nextLatestEpisode ?? "?"}`;
+	return {
+		provider: "anilist",
+		status: changed ? "updated" : "unchanged",
+		message: `AniList latest ${label}.`,
+	};
 }

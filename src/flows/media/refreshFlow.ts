@@ -1,39 +1,63 @@
-import {App, Notice} from "obsidian";
+import {App} from "obsidian";
 import {MediaTrackerSettings} from "../../settings";
-import {MediaItem} from "../../types";
+import {MediaItem, UpdateLogEntry, UpdateLogRun, UpdateProvider} from "../../types";
 import {ANILIST_TYPES, TMDB_TYPES} from "../../domain/media/config";
-import {refreshAniListLatest} from "./providers/anilistProviderFlow";
-import {refreshTmdbSeriesLatest} from "./providers/tmdbProviderFlow";
+import {AniListRefreshResult, refreshAniListLatest} from "./providers/anilistProviderFlow";
+import {refreshTmdbSeriesLatest, TmdbRefreshResult} from "./providers/tmdbProviderFlow";
 
-type RefreshResult = {
-	provider: "anilist" | "tmdb" | "none";
-	updated: boolean;
+type RefreshItemResult = {
+	provider: UpdateProvider;
+	status: UpdateLogEntry["status"];
+	message: string;
 };
+
+function toEntry(item: MediaItem, result: RefreshItemResult): UpdateLogEntry {
+	return {
+		title: item.title,
+		filePath: item.file.path,
+		type: item.type,
+		provider: result.provider,
+		status: result.status,
+		message: result.message,
+	};
+}
+
+function mapProviderResult(result: AniListRefreshResult | TmdbRefreshResult): RefreshItemResult {
+	return {
+		provider: result.provider,
+		status: result.status,
+		message: result.message,
+	};
+}
 
 export async function refreshTrackedMediaLatest(
 	app: App,
 	settings: MediaTrackerSettings,
 	item: MediaItem,
-): Promise<RefreshResult> {
+): Promise<RefreshItemResult> {
 	const minDelayMs = settings.tmdbMinIntervalMs;
 	if (item.type === "manga") {
-		const updated = await refreshAniListLatest(app, item, minDelayMs);
-		return {provider: "anilist", updated};
+		return mapProviderResult(await refreshAniListLatest(app, item, minDelayMs));
 	}
 	if (item.type === "anime") {
-		const ok = await refreshAniListLatest(app, item, minDelayMs);
-		if (!ok && TMDB_TYPES.has(item.type)) {
-			const tmdbUpdated = await refreshTmdbSeriesLatest(app, settings, item, minDelayMs);
-			return {provider: "tmdb", updated: tmdbUpdated};
+		const aniListResult = await refreshAniListLatest(app, item, minDelayMs);
+		if (aniListResult.status === "failed" && TMDB_TYPES.has(item.type)) {
+			return mapProviderResult(await refreshTmdbSeriesLatest(app, settings, item, minDelayMs));
 		}
-		return {provider: "anilist", updated: ok};
+		return mapProviderResult(aniListResult);
 	}
 	if (TMDB_TYPES.has(item.type)) {
-		const tmdbUpdated = await refreshTmdbSeriesLatest(app, settings, item, minDelayMs);
-		return {provider: "tmdb", updated: tmdbUpdated};
+		return mapProviderResult(await refreshTmdbSeriesLatest(app, settings, item, minDelayMs));
 	}
-	new Notice(`${item.title}: no refresh provider for ${item.type}.`);
-	return {provider: "none", updated: false};
+	return {
+		provider: "none",
+		status: "skipped",
+		message: `No refresh provider for ${item.type}.`,
+	};
+}
+
+export function formatRefreshRunSummary(run: UpdateLogRun): string {
+	return `Update complete. ${run.total} checked · ${run.updated} updated · ${run.unchanged} unchanged · ${run.failed} failed · ${run.skipped} skipped.`;
 }
 
 export async function refreshTrackedMedia(
@@ -41,23 +65,48 @@ export async function refreshTrackedMedia(
 	settings: MediaTrackerSettings,
 	items: MediaItem[],
 	onProgress?: (current: number, total: number) => void,
-): Promise<void> {
+): Promise<UpdateLogRun> {
+	const startedAt = Date.now();
 	const targets = items.filter((item) => TMDB_TYPES.has(item.type) || ANILIST_TYPES.has(item.type));
 	const total = targets.length;
-	let index = 0;
-	let anilistUpdated = 0;
-	let tmdbUpdated = 0;
-	for (const item of targets) {
-		index += 1;
-		onProgress?.(index, total);
+	const entries: UpdateLogEntry[] = [];
+	let updated = 0;
+	let unchanged = 0;
+	let failed = 0;
+	let skipped = 0;
+
+	for (const [index, item] of targets.entries()) {
+		onProgress?.(index + 1, total);
 		const result = await refreshTrackedMediaLatest(app, settings, item);
-		if (result.provider === "anilist" && result.updated) {
-			anilistUpdated += 1;
-		}
-		if (result.provider === "tmdb" && result.updated) {
-			tmdbUpdated += 1;
+		entries.push(toEntry(item, result));
+		switch (result.status) {
+			case "updated":
+				updated += 1;
+				break;
+			case "unchanged":
+				unchanged += 1;
+				break;
+			case "failed":
+				failed += 1;
+				break;
+			case "skipped":
+			default:
+				skipped += 1;
+				break;
 		}
 	}
-	new Notice(`Updates complete. AniList: ${anilistUpdated}, TMDb: ${tmdbUpdated}.`);
+
 	settings.tmdbLastSync = Date.now();
+	const finishedAt = Date.now();
+	return {
+		startedAt,
+		finishedAt,
+		durationMs: Math.max(0, finishedAt - startedAt),
+		total,
+		updated,
+		unchanged,
+		failed,
+		skipped,
+		entries,
+	};
 }

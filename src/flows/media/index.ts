@@ -4,7 +4,7 @@ export {
 	updateMediaDraftType,
 } from "./createFlow";
 export {listTrackedMedia, listTrackedMediaFiles} from "./queryFlow";
-export {refreshTrackedMedia, refreshTrackedMediaLatest} from "./refreshFlow";
+export {formatRefreshRunSummary, refreshTrackedMedia, refreshTrackedMediaLatest} from "./refreshFlow";
 export {
 	addLinkToMediaNote,
 	deleteMediaNote,

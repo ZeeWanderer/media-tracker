@@ -358,8 +358,10 @@
 }
 
 .media-tracker__refresh-button--progress {
-	width: auto;
-	padding: 0 6px;
+	width: auto !important;
+	min-width: 56px;
+	padding: 0 8px !important;
+	gap: 6px;
 }
 
 .media-tracker__refresh-icon {
@@ -369,7 +371,33 @@
 	margin: 0 auto;
 }
 
+@keyframes media-tracker__spin-refresh {
+	from {
+		transform: rotate(0deg);
+	}
+	to {
+		transform: rotate(360deg);
+	}
+}
+
+.media-tracker__refresh-button--running .media-tracker__refresh-icon {
+	animation: media-tracker__spin-refresh 0.85s linear infinite;
+	transform-origin: center;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.media-tracker__refresh-button--running .media-tracker__refresh-icon {
+		animation: none;
+	}
+}
+
 .media-tracker__cleanup-button svg {
+	width: 18px;
+	height: 18px;
+	display: block;
+}
+
+.media-tracker__update-log-button svg {
 	width: 18px;
 	height: 18px;
 	display: block;
@@ -469,6 +497,161 @@
 	margin-top: 16px;
 	display: flex;
 	justify-content: flex-end;
+}
+
+.media-tracker__update-log-list {
+	display: grid;
+	gap: 12px;
+}
+
+.media-tracker__update-run {
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 10px;
+	padding: 10px;
+	background: var(--background-primary-alt);
+	display: grid;
+	gap: 8px;
+}
+
+.media-tracker__update-run-title {
+	display: flex;
+	align-items: baseline;
+	justify-content: space-between;
+	gap: 12px;
+}
+
+.media-tracker__update-run-title h3 {
+	margin: 0;
+	font-size: 14px;
+}
+
+.media-tracker__update-run-duration {
+	font-size: 12px;
+	color: var(--text-muted);
+}
+
+.media-tracker__update-run-summary {
+	font-size: 12px;
+	color: var(--text-muted);
+}
+
+.media-tracker__update-run-entries {
+	display: grid;
+	gap: 6px;
+}
+
+.media-tracker__update-entry {
+	display: grid;
+	grid-template-columns: 90px minmax(120px, 220px) minmax(0, 1fr);
+	gap: 8px;
+	padding: 6px 8px;
+	border-radius: 8px;
+	background: var(--background-secondary);
+	font-size: 12px;
+	align-items: center;
+}
+
+.media-tracker__update-entry-status {
+	font-weight: 600;
+	text-transform: capitalize;
+}
+
+.media-tracker__update-entry-title {
+	font-weight: 500;
+	color: var(--text-normal);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.media-tracker__update-entry-message {
+	color: var(--text-muted);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.media-tracker__update-entry--failed {
+	border: 1px solid var(--color-red);
+}
+
+.media-tracker__update-entry--updated {
+	border: 1px solid var(--color-green);
+}
+
+.media-tracker__update-entry--unchanged {
+	border: 1px solid var(--background-modifier-border);
+}
+
+.media-tracker__plugin-log-list {
+	display: grid;
+	gap: 12px;
+}
+
+.media-tracker__plugin-log-rows {
+	display: grid;
+	gap: 6px;
+}
+
+.media-tracker__plugin-log-entry {
+	display: grid;
+	grid-template-columns: 180px 60px minmax(160px, 220px) minmax(220px, 1fr);
+	gap: 8px;
+	align-items: center;
+	padding: 6px 8px;
+	border-radius: 8px;
+	background: var(--background-secondary);
+	font-size: 12px;
+}
+
+.media-tracker__plugin-log-entry--error {
+	border: 1px solid var(--color-red);
+}
+
+.media-tracker__plugin-log-entry--warn {
+	border: 1px solid var(--color-orange);
+}
+
+.media-tracker__plugin-log-entry--info {
+	border: 1px solid var(--background-modifier-border);
+}
+
+.media-tracker__plugin-log-entry--debug {
+	border: 1px dashed var(--background-modifier-border);
+}
+
+.media-tracker__plugin-log-time {
+	color: var(--text-muted);
+	white-space: nowrap;
+}
+
+.media-tracker__plugin-log-level {
+	font-weight: 700;
+	text-transform: uppercase;
+	font-size: 11px;
+}
+
+.media-tracker__plugin-log-source {
+	font-weight: 500;
+	color: var(--text-normal);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.media-tracker__plugin-log-message {
+	color: var(--text-normal);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.media-tracker__plugin-log-meta {
+	grid-column: 2 / -1;
+	color: var(--text-muted);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
 }
 .media-tracker__actions-row {
 	display: flex;

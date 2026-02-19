@@ -8,6 +8,16 @@ import {createMediaNoteFromDraft, updateMediaDraftType} from "../flows/media";
 import {NEW_MEDIA_BASE_FIELDS, NEW_MEDIA_TYPE_FIELDS} from "./newMediaForm";
 import {extractImdbId} from "../domain/media/links";
 
+type TaskLogContext = {
+	scope?: string;
+	event: string;
+	startMessage?: string;
+	successMessage?: string;
+	meta?: Record<string, unknown>;
+	logStart?: boolean;
+	logSuccess?: boolean;
+};
+
 export class NewMediaModal extends Modal {
 	plugin: MediaTrackerPlugin;
 	private draft: NewMediaDraft = {
@@ -26,11 +36,49 @@ export class NewMediaModal extends Modal {
 		this.render();
 	}
 
-	private runTask(task: () => Promise<void>, errorMessage: string) {
-		void task().catch((error) => {
-			console.error(error);
-			new Notice(errorMessage);
-		});
+	private getDraftLogMeta(draft: NewMediaDraft): Record<string, unknown> {
+		return {
+			title: draft.title.trim(),
+			type: draft.type,
+			status: draft.status,
+			links: (draft.links ?? []).map((value) => value.trim()).filter((value) => value.length > 0).length,
+			hasAuthor: Boolean(draft.author?.trim()),
+			hasProgress: Boolean(draft.progress?.trim()),
+			hasImdbId: Boolean(draft.imdbId?.trim()),
+			hasAnilistId: Boolean(draft.anilistId?.trim()),
+		};
+	}
+
+	private runTask(task: () => Promise<void>, errorMessage: string, logContext?: TaskLogContext) {
+		const scope = logContext?.scope ?? "ui.new_media";
+		if (logContext?.logStart) {
+			this.plugin.logger.info(
+				scope,
+				`${logContext.event}_started`,
+				logContext.startMessage ?? "Started action.",
+				logContext.meta,
+			);
+		}
+		void task()
+			.then(() => {
+				if (!logContext || logContext.logSuccess === false) {
+					return;
+				}
+				this.plugin.logger.info(
+					scope,
+					`${logContext.event}_succeeded`,
+					logContext.successMessage ?? "Completed action.",
+					logContext.meta,
+				);
+			})
+			.catch((error) => {
+				console.error(error);
+				this.plugin.logger.error(scope, logContext ? `${logContext.event}_failed` : "task_failed", errorMessage, {
+					...(logContext?.meta ?? {}),
+					error: error instanceof Error ? error.message : String(error),
+				});
+				new Notice(errorMessage);
+			});
 	}
 
 	private render() {
@@ -73,12 +121,22 @@ export class NewMediaModal extends Modal {
 		const actions = contentEl.createDiv({cls: "media-tracker__modal-actions"});
 		const createButton = actions.createEl("button", {text: "Create note", cls: "media-tracker__button"});
 		createButton.addEventListener("click", () => {
+			const draftMeta = this.getDraftLogMeta(this.draft);
 			this.runTask(async () => {
 				const created = await createMediaNoteFromDraft(this.app, this.plugin.settings, this.draft);
 				if (created) {
+					this.plugin.logger.info("ui.new_media", "create_note_result", "Created media note.", draftMeta);
 					this.close();
+					return;
 				}
-			}, "Failed to create media note.");
+				this.plugin.logger.warn("ui.new_media", "create_note_result", "Create media note was rejected by validation.", draftMeta);
+			}, "Failed to create media note.", {
+				event: "create_note",
+				logStart: true,
+				logSuccess: false,
+				startMessage: "Creating media note from modal draft.",
+				meta: draftMeta,
+			});
 		});
 	}
 

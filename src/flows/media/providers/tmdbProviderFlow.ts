@@ -1,9 +1,15 @@
-import {App, Notice, TFile} from "obsidian";
+import {App, TFile} from "obsidian";
 import {MediaTrackerSettings} from "../../../settings";
 import {MediaItem} from "../../../types";
 import {fetchTmdbLatestEpisode, findTmdbTvIdByImdb} from "../../../infra/api/tmdbApi";
 import {processMediaFrontmatter} from "../../../domain/media";
 import {extractImdbId, getImdbIdFromLinks} from "../../../domain/media/links";
+
+export type TmdbRefreshResult = {
+	provider: "tmdb";
+	status: "updated" | "unchanged" | "failed";
+	message: string;
+};
 
 function delay(ms: number): Promise<void> {
 	if (ms <= 0) {
@@ -45,6 +51,18 @@ function sanitizeSeasonEpisodes(map: Record<string, number>): Record<string, num
 		return undefined;
 	}
 	return Object.fromEntries(entries.map(([key, val]) => [String(Number(key)), Number(val)]));
+}
+
+function sameNumberRecord(a: Record<string, number> | undefined, b: Record<string, number> | undefined): boolean {
+	const leftEntries = Object.entries(a ?? {}).sort((x, y) => Number(x[0]) - Number(y[0]));
+	const rightEntries = Object.entries(b ?? {}).sort((x, y) => Number(x[0]) - Number(y[0]));
+	if (leftEntries.length !== rightEntries.length) {
+		return false;
+	}
+	return leftEntries.every(([leftKey, leftVal], index) => {
+		const [rightKey, rightVal] = rightEntries[index] ?? [];
+		return leftKey === rightKey && leftVal === rightVal;
+	});
 }
 
 async function updateSeriesFrontmatter(
@@ -118,17 +136,23 @@ export async function refreshTmdbSeriesLatest(
 	settings: MediaTrackerSettings,
 	item: MediaItem,
 	minDelayMs: number,
-): Promise<boolean> {
+): Promise<TmdbRefreshResult> {
 	if (!settings.tmdbApiKey) {
-		new Notice("Set a TMDb API key in settings.");
-		return false;
+		return {
+			provider: "tmdb",
+			status: "failed",
+			message: "Set a TMDb API key in settings.",
+		};
 	}
 
 	const linkImdbId = getImdbIdFromLinks(item.links ?? []);
 	const imdbId = item.imdbId ?? linkImdbId;
 	if (!imdbId && !item.tmdbId) {
-		new Notice("Series needs an IMDB ID or TMDb ID.");
-		return false;
+		return {
+			provider: "tmdb",
+			status: "failed",
+			message: "Series needs an IMDB ID or TMDb ID.",
+		};
 	}
 
 	const apiKey = settings.tmdbApiKey;
@@ -137,8 +161,11 @@ export async function refreshTmdbSeriesLatest(
 		if (!tmdbId && imdbId) {
 			const normalized = extractImdbId(imdbId);
 			if (!normalized) {
-				new Notice("IMDB ID not found in link.");
-				return false;
+				return {
+					provider: "tmdb",
+					status: "failed",
+					message: "IMDB ID not found in link.",
+				};
 			}
 			const found = await findTmdbTvIdByImdb(normalized, apiKey);
 			tmdbId = found ?? undefined;
@@ -150,31 +177,55 @@ export async function refreshTmdbSeriesLatest(
 			}
 		}
 		if (!tmdbId) {
-			new Notice("TMDb ID not found for this series.");
-			return false;
+			return {
+				provider: "tmdb",
+				status: "failed",
+				message: "TMDb ID not found for this series.",
+			};
 		}
 
 		const latest = await fetchTmdbLatestEpisode(tmdbId, apiKey);
 		const seasonEpisodeCount = latest?.episode ?? undefined;
+		const nextSeason = latest?.season;
+		const nextEpisode = latest?.episode;
+		const nextSeasonEpisodes = latest?.seasonEpisodes;
+		const nextAirDate = latest?.airDate;
+		const nextName = latest?.name;
+		const changed = nextSeason !== item.tmdbLatestSeason
+			|| nextEpisode !== item.tmdbLatestEpisode
+			|| !sameNumberRecord(nextSeasonEpisodes, item.tmdbSeasonEpisodes)
+			|| nextAirDate !== item.tmdbLatestAirDate
+			|| nextName !== item.tmdbLatestName;
+
 		await updateSeriesFrontmatter(app, item.file, {
 			tmdbId,
 			lastChecked: Date.now(),
-			season: latest?.season,
-			episode: latest?.episode,
+			season: nextSeason,
+			episode: nextEpisode,
 			seasonEpisodeCount,
-			seasonEpisodes: latest?.seasonEpisodes,
-			airDate: latest?.airDate,
-			name: latest?.name,
+			seasonEpisodes: nextSeasonEpisodes,
+			airDate: nextAirDate,
+			name: nextName,
 		});
-		if (latest?.season && latest?.episode) {
-			new Notice(`${item.title}: latest S${latest.season}E${latest.episode}`);
-		} else {
-			new Notice(`${item.title}: TMDb did not return a latest episode.`);
-		}
+
 		await delay(minDelayMs);
-		return true;
+		if (nextSeason && nextEpisode) {
+			return {
+				provider: "tmdb",
+				status: changed ? "updated" : "unchanged",
+				message: `TMDb latest S${nextSeason}E${nextEpisode}.`,
+			};
+		}
+		return {
+			provider: "tmdb",
+			status: changed ? "updated" : "unchanged",
+			message: "TMDb did not return a latest episode.",
+		};
 	} catch {
-		new Notice(`${item.title}: TMDb request failed. Check your API key and network.`);
-		return false;
+		return {
+			provider: "tmdb",
+			status: "failed",
+			message: "TMDb request failed. Check API key and network.",
+		};
 	}
 }

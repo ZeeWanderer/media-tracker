@@ -2,6 +2,9 @@ import {TFile} from "obsidian";
 
 export type MediaType = "novel" | "manga" | "series" | "anime" | "movie";
 export type MediaStatus = "planned" | "active" | "completed" | "on-hold" | "dropped";
+export type UpdateNotificationMode = "quiet" | "summary" | "verbose";
+export type UpdateProvider = "anilist" | "tmdb" | "none";
+export type UpdateEntryStatus = "updated" | "unchanged" | "failed" | "skipped";
 
 export interface MediaItem {
 	file: TFile;
@@ -50,6 +53,27 @@ export interface NewMediaDraft {
 	imdbId?: string;
 	anilistId?: string;
 	links: string[];
+}
+
+export interface UpdateLogEntry {
+	title: string;
+	filePath: string;
+	type: MediaType;
+	provider: UpdateProvider;
+	status: UpdateEntryStatus;
+	message: string;
+}
+
+export interface UpdateLogRun {
+	startedAt: number;
+	finishedAt: number;
+	durationMs: number;
+	total: number;
+	updated: number;
+	unchanged: number;
+	failed: number;
+	skipped: number;
+	entries: UpdateLogEntry[];
 }
 
 export type NewMediaFieldConfig = {

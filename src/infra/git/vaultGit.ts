@@ -1,5 +1,6 @@
 import {App, FileSystemAdapter} from "obsidian";
 import {spawn} from "child_process";
+import * as path from "path";
 
 type GitCommandResult = {
 	exitCode: number;
@@ -21,6 +22,21 @@ export type VaultCommitResult = {
 	status: VaultCommitStatus;
 	message: string;
 	commitMessage?: string;
+};
+
+type VaultGitignoreStatus =
+	| "updated"
+	| "already_up_to_date"
+	| "not_repo"
+	| "git_missing"
+	| "unsupported_root"
+	| "failed";
+
+export type VaultGitignoreUpdateResult = {
+	status: VaultGitignoreStatus;
+	message: string;
+	gitignorePath?: string;
+	addedEntries?: string[];
 };
 
 function getVaultBasePath(app: App): string | null {
@@ -116,6 +132,49 @@ function parseAheadBehind(raw: string): {ahead: number; behind: number} | null {
 	return {ahead, behind};
 }
 
+function normalizePathValue(value: string): string {
+	const normalized = path.normalize(path.resolve(value));
+	if (/^[a-zA-Z]:[\\/]/.test(normalized)) {
+		return normalized.toLowerCase();
+	}
+	return normalized;
+}
+
+function getRepoPathWithinVault(vaultPath: string, repoRoot: string): string | null {
+	const normalizedVault = normalizePathValue(vaultPath);
+	const normalizedRepo = normalizePathValue(repoRoot);
+	if (normalizedVault === normalizedRepo) {
+		return "";
+	}
+	const relative = path.relative(vaultPath, repoRoot);
+	if (!relative.length || relative.startsWith("..") || path.isAbsolute(relative)) {
+		return null;
+	}
+	const normalizedRelative = normalizePathValue(path.join(vaultPath, relative));
+	if (!normalizedRelative.startsWith(`${normalizedVault}${path.sep}`)) {
+		return null;
+	}
+	return relative.split(path.sep).join("/");
+}
+
+function normalizeIgnorePattern(value: string): string {
+	return value.trim().replace(/^\/+/, "").replace(/\/+$/, "").toLowerCase();
+}
+
+function hasIgnorePattern(lines: string[], pattern: string): boolean {
+	const target = normalizeIgnorePattern(pattern);
+	for (const line of lines) {
+		const trimmed = line.trim();
+		if (!trimmed.length || trimmed.startsWith("#") || trimmed.startsWith("!")) {
+			continue;
+		}
+		if (normalizeIgnorePattern(trimmed) === target) {
+			return true;
+		}
+	}
+	return false;
+}
+
 function padTwo(value: number): string {
 	return String(value).padStart(2, "0");
 }
@@ -134,6 +193,14 @@ export function getUpdateCommitMessage(value: Date = new Date()): string {
 	return `[update] ${formatDateTime(value)}`;
 }
 
+export function getPluginGitignoreEntries(app: App, pluginId: string): string[] {
+	const configDir = app.vault.configDir.replace(/^\/+|\/+$/g, "");
+	return [
+		`${configDir}/plugins/${pluginId}/cache/`,
+		`${configDir}/plugins/${pluginId}/logs/`,
+	];
+}
+
 export async function isVaultGitRepository(app: App): Promise<boolean> {
 	const vaultPath = getVaultBasePath(app);
 	if (!vaultPath) {
@@ -141,6 +208,91 @@ export async function isVaultGitRepository(app: App): Promise<boolean> {
 	}
 	const result = await runGit(["rev-parse", "--is-inside-work-tree"], vaultPath);
 	return result.exitCode === 0 && result.stdout.trim() === "true";
+}
+
+export async function ensurePluginGitignoreEntries(
+	app: App,
+	pluginId: string,
+): Promise<VaultGitignoreUpdateResult> {
+	const vaultPath = getVaultBasePath(app);
+	if (!vaultPath) {
+		return {
+			status: "not_repo",
+			message: "Vault adapter is not filesystem-based.",
+		};
+	}
+
+	const repoCheck = await runGit(["rev-parse", "--is-inside-work-tree"], vaultPath);
+	if (isGitMissing(repoCheck)) {
+		return {
+			status: "git_missing",
+			message: "Git is not available in this environment.",
+		};
+	}
+	if (repoCheck.exitCode !== 0 || repoCheck.stdout.trim() !== "true") {
+		return {
+			status: "not_repo",
+			message: "Vault is not a Git repository.",
+		};
+	}
+
+	const rootResult = await runGit(["rev-parse", "--show-toplevel"], vaultPath);
+	if (rootResult.exitCode !== 0) {
+		return {
+			status: "failed",
+			message: summarizeGitError(rootResult),
+		};
+	}
+
+	const repoRoot = rootResult.stdout.trim();
+	if (!repoRoot.length) {
+		return {
+			status: "failed",
+			message: "Failed to determine repository root.",
+		};
+	}
+
+	const repoPath = getRepoPathWithinVault(vaultPath, repoRoot);
+	if (repoPath === null) {
+		return {
+			status: "unsupported_root",
+			message: "Repository root is outside vault scope; .gitignore update is not supported.",
+		};
+	}
+
+	const gitignorePath = repoPath.length ? `${repoPath}/.gitignore` : ".gitignore";
+	const adapter = app.vault.adapter;
+	const exists = await adapter.exists(gitignorePath);
+	const existing = exists ? await adapter.read(gitignorePath) : "";
+	const lines = existing.length ? existing.split(/\r?\n/) : [];
+	const patterns = getPluginGitignoreEntries(app, pluginId);
+	const missing = patterns.filter((pattern) => !hasIgnorePattern(lines, pattern));
+	if (!missing.length) {
+		return {
+			status: "already_up_to_date",
+			message: `.gitignore already includes plugin cache/log entries (${gitignorePath}).`,
+			gitignorePath,
+			addedEntries: [],
+		};
+	}
+
+	const header = "# Media Tracker plugin artifacts";
+	const shouldAddHeader = !lines.some((line) => line.trim() === header);
+	const base = existing.length && !existing.endsWith("\n") ? `${existing}\n` : existing;
+	const appendLines: string[] = [];
+	if (shouldAddHeader) {
+		appendLines.push(header);
+	}
+	appendLines.push(...missing);
+	const next = `${base}${appendLines.join("\n")}\n`;
+	await adapter.write(gitignorePath, next);
+
+	return {
+		status: "updated",
+		message: `${exists ? "Updated" : "Created"} ${gitignorePath} with ${missing.length} plugin ignore entr${missing.length === 1 ? "y" : "ies"}.`,
+		gitignorePath,
+		addedEntries: missing,
+	};
 }
 
 export async function createVaultUpdateCommit(app: App): Promise<VaultCommitResult> {
