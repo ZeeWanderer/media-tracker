@@ -405,6 +405,10 @@ function parseChapterProgressValue(value: string): string | null {
 	if (prefixed?.[1]) {
 		return prefixed[1];
 	}
+	const volumeChapter = trimmed.match(/^(?:vol|volume|v)\s*\d+\s*(?:ch|chapter|c)\s*(\d+(?:\.\d+)?)$/i);
+	if (volumeChapter?.[1]) {
+		return volumeChapter[1];
+	}
 	return null;
 }
 
@@ -679,18 +683,22 @@ function getLatestSeasonEpisode(item: MediaItemLike): {season: number; episode: 
 }
 
 function incrementNumericString(value: string): string {
-	if (value.includes(".")) {
-		const parts = value.split(".");
-		const tail = parts[parts.length - 1];
-		if (!tail) {
+	const decimalMatch = value.match(/^(\d+)\.(\d+)$/);
+	if (decimalMatch?.[1] && decimalMatch[2]) {
+		const whole = Number.parseInt(decimalMatch[1], 10);
+		const fractional = decimalMatch[2];
+		if (Number.isNaN(whole)) {
 			return value;
 		}
-		const next = Number.parseInt(tail, 10);
+		// Manga special chapters are usually ".5", and the next canonical chapter is the next integer.
+		if (fractional === "5") {
+			return String(whole + 1);
+		}
+		const next = Number.parseInt(fractional, 10);
 		if (Number.isNaN(next)) {
 			return value;
 		}
-		parts[parts.length - 1] = String(next + 1);
-		return parts.join(".");
+		return `${whole}.${next + 1}`;
 	}
 	const next = Number.parseInt(value, 10);
 	if (Number.isNaN(next)) {

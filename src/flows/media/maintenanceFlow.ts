@@ -53,7 +53,8 @@ export async function updateMediaNoteProgress(
 		}
 
 		const chapterMatch = trimmed.match(/^(?:ch|chapter)\s+(.+)$/i);
-		const chapterValue = chapterMatch?.[1]?.trim();
+		const volumeChapterMatch = trimmed.match(/^(?:vol|volume|v)\s*\d+\s*(?:ch|chapter|c)\s*(\d+(?:\.\d+)?)$/i);
+		const chapterValue = chapterMatch?.[1]?.trim() ?? volumeChapterMatch?.[1]?.trim();
 		const numeric = chapterValue ?? trimmed;
 		if (/^\d+(?:\.\d+)?$/.test(numeric)) {
 			frontmatter.progress = numeric;
@@ -63,6 +64,8 @@ export async function updateMediaNoteProgress(
 		}
 
 		frontmatter.progressLabel = trimmed;
+		delete frontmatter.progress;
+		delete frontmatter.progressUnit;
 	});
 }
 
