@@ -55,6 +55,10 @@ export class MediaTrackerView extends ItemView {
 	private gitRepository: boolean | null = null;
 	private gitRepositoryPromise: Promise<void> | null = null;
 	private isRefreshing = false;
+	private refreshProgressCurrent = 0;
+	private refreshProgressTotal = 0;
+	private refreshButton: HTMLButtonElement | null = null;
+	private refreshLabel: HTMLSpanElement | null = null;
 	private isCreatingGitCommit = false;
 
 	constructor(leaf: WorkspaceLeaf, plugin: MediaTrackerPlugin) {
@@ -131,6 +135,8 @@ export class MediaTrackerView extends ItemView {
 
 		contentEl.empty();
 		contentEl.addClass("media-tracker");
+		this.refreshButton = null;
+		this.refreshLabel = null;
 		void this.ensureKnownIconAssets();
 		this.ensureGitRepositoryState();
 
@@ -140,19 +146,16 @@ export class MediaTrackerView extends ItemView {
 		const actions = header.createDiv({cls: "media-tracker__actions"});
 		const refreshButton = actions.createEl("button", {cls: "media-tracker__button media-tracker__icon-button media-tracker__refresh-button"});
 		refreshButton.setAttr("aria-label", "Refresh media updates");
-		refreshButton.setAttr("title", this.getRefreshTooltip());
 		refreshButton.appendChild(this.createRefreshIcon());
 		const refreshLabel = refreshButton.createSpan({cls: "media-tracker__refresh-label"});
-		if (this.isRefreshing) {
-			refreshButton.disabled = true;
-			refreshButton.addClass("is-disabled");
-			refreshButton.addClass("media-tracker__refresh-button--running");
-		}
+		this.refreshButton = refreshButton;
+		this.refreshLabel = refreshLabel;
+		this.updateRefreshButtonState();
 		refreshButton.addEventListener("click", () => {
 			if (this.isRefreshing) {
 				return;
 			}
-			void this.runRefresh(refreshButton, refreshLabel);
+			void this.runRefresh();
 		});
 		const updateLogButton = actions.createEl("button", {cls: "media-tracker__button media-tracker__icon-button media-tracker__update-log-button"});
 		updateLogButton.type = "button";
@@ -418,18 +421,61 @@ export class MediaTrackerView extends ItemView {
 		return `Check latest updates (last updated ${date.toLocaleString()})`;
 	}
 
-	private async runRefresh(refreshButton: HTMLButtonElement, refreshLabel: HTMLSpanElement) {
+	private updateRefreshButtonState() {
+		const refreshButton = this.refreshButton;
+		const refreshLabel = this.refreshLabel;
+		if (!refreshButton || !refreshLabel) {
+			return;
+		}
+		const showProgress = this.isRefreshing && this.refreshProgressTotal > 0;
+		refreshLabel.setText(showProgress ? `${this.refreshProgressCurrent}/${this.refreshProgressTotal}` : "");
+		refreshButton.disabled = this.isRefreshing;
+		refreshButton.toggleClass("is-disabled", this.isRefreshing);
+		refreshButton.toggleClass("media-tracker__refresh-button--running", this.isRefreshing);
+		refreshButton.toggleClass("media-tracker__refresh-button--progress", showProgress);
+		if (this.isRefreshing) {
+			if (showProgress) {
+				refreshButton.setAttr(
+					"title",
+					`Refreshing media updates (${this.refreshProgressCurrent}/${this.refreshProgressTotal})`,
+				);
+			} else {
+				refreshButton.setAttr("title", "Refreshing media updates");
+			}
+			return;
+		}
+		refreshButton.setAttr("title", this.getRefreshTooltip());
+	}
+
+	private setRefreshProgress(current: number, total: number) {
+		this.refreshProgressCurrent = Math.max(0, Math.floor(current));
+		this.refreshProgressTotal = Math.max(0, Math.floor(total));
+		this.updateRefreshButtonState();
+	}
+
+	private clearRefreshProgress() {
+		this.refreshProgressCurrent = 0;
+		this.refreshProgressTotal = 0;
+	}
+
+	private async runRefresh() {
 		this.isRefreshing = true;
-		refreshButton.disabled = true;
-		refreshButton.addClass("is-disabled");
-		refreshButton.addClass("media-tracker__refresh-button--running");
+		this.clearRefreshProgress();
+		this.updateRefreshButtonState();
 		try {
 			const items = listTrackedMedia(this.app, this.plugin.settings);
 			this.plugin.logger.info("refresh", "bulk_start", "Starting bulk media refresh.", {count: items.length});
-			const run = await refreshTrackedMedia(this.app, this.plugin.settings, items, (current, total) => {
-				refreshLabel.setText(`${current}/${total}`);
-				refreshButton.addClass("media-tracker__refresh-button--progress");
-			});
+			const run = await refreshTrackedMedia(
+				this.app,
+				this.plugin.settings,
+				items,
+				(current, total) => {
+					this.setRefreshProgress(current, total);
+				},
+				(activeRun) => {
+					this.plugin.setActiveUpdateRun(activeRun);
+				},
+			);
 			this.appendUpdateRun(run);
 			await this.plugin.saveSettings();
 			this.notifyRefreshResult(run);
@@ -452,11 +498,9 @@ export class MediaTrackerView extends ItemView {
 			new Notice("Failed to refresh media updates.");
 		} finally {
 			this.isRefreshing = false;
-			refreshLabel.setText("");
-			refreshButton.removeClass("media-tracker__refresh-button--progress");
-			refreshButton.removeClass("media-tracker__refresh-button--running");
-			refreshButton.removeClass("is-disabled");
-			refreshButton.disabled = false;
+			this.clearRefreshProgress();
+			this.plugin.setActiveUpdateRun(null);
+			this.updateRefreshButtonState();
 			this.render();
 		}
 	}

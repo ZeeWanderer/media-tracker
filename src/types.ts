@@ -73,6 +73,10 @@ export interface UpdateLogRun {
 	unchanged: number;
 	failed: number;
 	skipped: number;
+	providerProgress?: {
+		anilist: {total: number; completed: number};
+		tmdb: {total: number; completed: number};
+	};
 	entries: UpdateLogEntry[];
 }
 

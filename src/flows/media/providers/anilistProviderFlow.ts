@@ -6,7 +6,7 @@ import {extractAnilistId} from "../../../domain/media/links";
 
 export type AniListRefreshResult = {
 	provider: "anilist";
-	status: "updated" | "unchanged" | "failed";
+	status: "updated" | "unchanged" | "failed" | "skipped";
 	message: string;
 };
 
@@ -46,6 +46,36 @@ function sameNumberRecord(a: Record<string, number> | undefined, b: Record<strin
 	});
 }
 
+function mergeNumberRecord(
+	base: Record<string, number> | undefined,
+	incoming: Record<string, number> | undefined,
+): Record<string, number> | undefined {
+	const merged = new Map<number, number>();
+	for (const source of [base, incoming]) {
+		if (!source) {
+			continue;
+		}
+		for (const [key, value] of Object.entries(source)) {
+			const numericKey = Number.parseInt(key, 10);
+			if (!Number.isFinite(numericKey) || numericKey <= 0) {
+				continue;
+			}
+			if (!Number.isFinite(value) || value <= 0) {
+				continue;
+			}
+			merged.set(numericKey, Math.floor(value));
+		}
+	}
+	if (!merged.size) {
+		return undefined;
+	}
+	return Object.fromEntries(
+		Array.from(merged.entries())
+			.sort((a, b) => a[0] - b[0])
+			.map(([key, value]) => [String(key), value] as const),
+	);
+}
+
 export async function refreshAniListLatest(
 	app: App,
 	item: MediaItem,
@@ -58,7 +88,7 @@ export async function refreshAniListLatest(
 	if (!anilistId) {
 		return {
 			provider: "anilist",
-			status: "failed",
+			status: "skipped",
 			message: "AniList ID not found.",
 		};
 	}
@@ -117,7 +147,9 @@ export async function refreshAniListLatest(
 	const nextVolumes = typeof result.media.volumes === "number" ? result.media.volumes : undefined;
 	const nextSeason = result.seasonNumber;
 	const nextSeasonTotal = result.seasonTotal;
-	const nextSeasonEpisodes = result.seasonEpisodes;
+	const nextSeasonEpisodes = item.type === "anime"
+		? mergeNumberRecord(item.anilistSeasonEpisodes, result.seasonEpisodes)
+		: result.seasonEpisodes;
 
 	const changed = item.type === "manga"
 		? nextChapters !== item.anilistChapters || nextVolumes !== item.anilistVolumes

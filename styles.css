@@ -356,16 +356,17 @@
 .media-tracker__refresh-button {
 	width: 28px;
 	min-width: 28px;
-	padding: 0;
-	gap: 4px;
+	padding: 0 !important;
+	gap: 0;
 	line-height: 1;
 }
 
 .media-tracker__refresh-button--progress {
 	width: auto !important;
-	min-width: 56px;
+	min-width: 72px;
 	padding: 0 8px !important;
 	gap: 6px;
+	justify-content: flex-start;
 }
 
 .media-tracker__refresh-icon {
@@ -423,6 +424,8 @@
 	display: none;
 	font-size: 11px;
 	line-height: 1;
+	white-space: nowrap;
+	font-variant-numeric: tabular-nums;
 }
 
 .media-tracker__refresh-button--progress .media-tracker__refresh-label {
@@ -534,7 +537,25 @@
 	color: var(--text-muted);
 }
 
+.media-tracker__update-run-badge {
+	display: inline-flex;
+	align-items: center;
+	padding: 2px 8px;
+	border-radius: 999px;
+	border: 1px solid var(--interactive-accent);
+	color: var(--interactive-accent);
+	font-size: 11px;
+	font-weight: 600;
+	letter-spacing: 0.04em;
+	text-transform: uppercase;
+}
+
 .media-tracker__update-run-summary {
+	font-size: 12px;
+	color: var(--text-muted);
+}
+
+.media-tracker__update-run-provider-summary {
 	font-size: 12px;
 	color: var(--text-muted);
 }

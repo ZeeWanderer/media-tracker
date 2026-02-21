@@ -16,6 +16,7 @@ export default class MediaTrackerPlugin extends Plugin {
 	private refreshTimer: number | null = null;
 	private startupUpdateInProgress = false;
 	private skippedRefreshEvents = 0;
+	private activeUpdateRun: UpdateLogRun | null = null;
 
 	async onload() {
 		await this.loadSettings();
@@ -128,6 +129,11 @@ export default class MediaTrackerPlugin extends Plugin {
 	}
 
 	refreshViews() {
+		this.refreshTrackerViews();
+		this.refreshUpdateLogViews();
+	}
+
+	refreshTrackerViews() {
 		const leaves = this.app.workspace.getLeavesOfType(MEDIA_TRACKER_VIEW);
 		for (const leaf of leaves) {
 			const view = leaf.view;
@@ -135,6 +141,9 @@ export default class MediaTrackerPlugin extends Plugin {
 				view.render();
 			}
 		}
+	}
+
+	refreshUpdateLogViews() {
 		const updateLogLeaves = this.app.workspace.getLeavesOfType(MEDIA_TRACKER_UPDATE_LOG_VIEW);
 		for (const leaf of updateLogLeaves) {
 			const view = leaf.view;
@@ -142,6 +151,24 @@ export default class MediaTrackerPlugin extends Plugin {
 				view.render();
 			}
 		}
+	}
+
+	setActiveUpdateRun(run: UpdateLogRun | null) {
+		this.activeUpdateRun = run ? {
+			...run,
+			entries: [...run.entries],
+		} : null;
+		this.refreshUpdateLogViews();
+	}
+
+	getActiveUpdateRun(): UpdateLogRun | null {
+		if (!this.activeUpdateRun) {
+			return null;
+		}
+		return {
+			...this.activeUpdateRun,
+			entries: [...this.activeUpdateRun.entries],
+		};
 	}
 
 	private getStartupUpdateIntervalMs(): number {
@@ -209,7 +236,9 @@ export default class MediaTrackerPlugin extends Plugin {
 				return;
 			}
 
-			const run = await refreshTrackedMedia(this.app, this.settings, items);
+			const run = await refreshTrackedMedia(this.app, this.settings, items, undefined, (activeRun) => {
+				this.setActiveUpdateRun(activeRun);
+			});
 			this.appendUpdateRun(run);
 			await this.saveData(this.settings);
 			this.logger.info("refresh", "startup_completed", "Startup library update completed.", {
@@ -230,6 +259,7 @@ export default class MediaTrackerPlugin extends Plugin {
 			});
 		} finally {
 			this.startupUpdateInProgress = false;
+			this.setActiveUpdateRun(null);
 			this.scheduleRefresh();
 		}
 	}
