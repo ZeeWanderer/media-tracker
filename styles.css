@@ -270,6 +270,10 @@
 	line-height: 28px;
 }
 
+.media-tracker__progress-label--empty {
+	min-width: 56px;
+}
+
 .media-tracker__progress-label:hover {
 	text-decoration: underline;
 	background: var(--background-modifier-hover);

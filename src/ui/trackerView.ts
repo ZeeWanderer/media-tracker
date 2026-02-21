@@ -2,7 +2,7 @@ import {ItemView, Menu, Notice, WorkspaceLeaf} from "obsidian";
 import MediaTrackerPlugin from "../main";
 import {MediaItem, MediaStatus, MediaType, UpdateLogRun} from "../types";
 import {getTitleSortKey} from "../domain/media/readModel";
-import {MEDIA_TYPES, TMDB_TYPES} from "../domain/media/config";
+import {MEDIA_TYPES, NOVEL_PROGRESS_TYPES, SEASON_EPISODE_TYPES, TMDB_TYPES} from "../domain/media/config";
 import {MEDIA_STATUS_LABELS} from "./mediaStatusLabels";
 import {MEDIA_TYPE_LABELS} from "./mediaTypeConfig";
 import {NewMediaModal} from "./newMediaModal";
@@ -20,7 +20,7 @@ import {
 	updateMediaNoteProgress,
 	updateMediaNoteStatus,
 } from "../flows/media";
-import {renderCard, renderTableHeader, renderTableRow, type RenderHandlers, type SortDirection, type SortKey} from "./trackerRenderer";
+import {renderCard, renderProgressMeta, renderTableHeader, renderTableRow, type RenderHandlers, type SortDirection, type SortKey} from "./trackerRenderer";
 import {getFaviconCacheKey} from "../infra/cache/faviconCache";
 import {KNOWN_ICON_BASES, getAnilistUrl, getKnownIconAsset} from "../domain/media/links";
 import {createVaultUpdateCommit, isVaultGitRepository} from "../infra/git/vaultGit";
@@ -367,10 +367,13 @@ export class MediaTrackerView extends ItemView {
 			onProgressEdit: (target, item) => {
 				this.openProgressEditor(target, item as MediaItem);
 			},
-			onProgressAdvance: (item, nextValue) => {
+			onProgressAdvance: (target, item, nextValue) => {
 				const fullItem = item as MediaItem;
 				this.runTask(async () => {
+					this.plugin.suppressNextViewRefresh();
 					await updateMediaNoteProgress(this.app, fullItem.file, fullItem.type, nextValue);
+					const optimistic = this.applyProgressValueToItem(fullItem, nextValue);
+					this.refreshProgressControl(target, fullItem.file.path, optimistic);
 				}, `Failed to update progress for "${fullItem.title}".`, {
 					event: "progress_advance",
 					logStart: true,
@@ -673,7 +676,14 @@ export class MediaTrackerView extends ItemView {
 		input.classList.add("media-tracker__progress-input");
 		input.value = item.progress ?? "";
 		input.size = Math.max(4, input.value.length);
+		const originalProgress = item.progress ?? "";
 		let finished = false;
+		const restoreOriginalDisplay = () => {
+			target.textContent = originalProgress || " ";
+			if (input.isConnected) {
+				input.replaceWith(target);
+			}
+		};
 
 		const finish = (save: boolean) => {
 			if (finished) {
@@ -681,16 +691,22 @@ export class MediaTrackerView extends ItemView {
 			}
 			finished = true;
 			if (!save) {
-				this.render();
+				restoreOriginalDisplay();
 				return;
 			}
 			const nextProgress = input.value;
-			this.runTask(async () => {
-				await updateMediaNoteProgress(this.app, item.file, item.type, nextProgress);
-				this.render();
-			}, `Failed to update progress for "${item.title}".`, {
-				event: "progress_edit",
-				logStart: true,
+				if (nextProgress.trim() === originalProgress.trim()) {
+					restoreOriginalDisplay();
+					return;
+				}
+				this.runTask(async () => {
+					this.plugin.suppressNextViewRefresh();
+					await updateMediaNoteProgress(this.app, item.file, item.type, nextProgress);
+					const optimistic = this.applyProgressValueToItem(item, nextProgress);
+					this.refreshProgressControl(input, item.file.path, optimistic);
+				}, `Failed to update progress for "${item.title}".`, {
+					event: "progress_edit",
+					logStart: true,
 				successMessage: `Updated progress for "${item.title}".`,
 				meta: {
 					...this.getItemLogMeta(item),
@@ -717,6 +733,74 @@ export class MediaTrackerView extends ItemView {
 		target.replaceWith(input);
 		input.focus();
 		input.select();
+	}
+
+	private refreshProgressControl(target: HTMLElement, filePath: string, optimistic?: MediaItem) {
+		if (this.displayMode === "details" && this.sortKey === "progress") {
+			this.render();
+			return;
+		}
+		const container = target.closest(".media-tracker__progress");
+		if (!container) {
+			this.render();
+			return;
+		}
+		const latest = optimistic ?? listTrackedMedia(this.app, this.plugin.settings)
+			.find((candidate) => candidate.file.path === filePath);
+		if (!latest) {
+			this.render();
+			return;
+		}
+		const compact = container.classList.contains("media-tracker__progress--compact");
+		const replacement = renderProgressMeta(latest, this.getRenderHandlers(), compact);
+		container.replaceWith(replacement);
+	}
+
+	private applyProgressValueToItem(item: MediaItem, value: string): MediaItem {
+		const trimmed = value.trim();
+		if (SEASON_EPISODE_TYPES.has(item.type)) {
+			const seMatch = trimmed.match(/^S\s*(\d+)\s*E\s*(\d+)$/i);
+			const altMatch = trimmed.match(/^(\d+)\s*x\s*(\d+)$/i);
+			const match = seMatch ?? altMatch;
+			if (match?.[1] && match[2]) {
+				const season = Number.parseInt(match[1], 10);
+				const episode = Number.parseInt(match[2], 10);
+				if (Number.isFinite(season) && Number.isFinite(episode)) {
+					return {
+						...item,
+						season,
+						episode,
+						progress: `S${season}E${episode}`,
+					};
+				}
+			}
+			return {
+				...item,
+				progress: trimmed,
+			};
+		}
+		if (NOVEL_PROGRESS_TYPES.has(item.type)) {
+			const chapterMatch = trimmed.match(/^(?:ch|chapter)\s*(\d+(?:\.\d+)?)$/i);
+			const normalized = chapterMatch?.[1] ?? trimmed;
+			if (/^\d+(?:\.\d+)?$/.test(normalized)) {
+				return {
+					...item,
+					progress: `ch ${normalized}`,
+					progressRaw: normalized,
+					progressLabel: undefined,
+				};
+			}
+			return {
+				...item,
+				progress: trimmed,
+				progressRaw: undefined,
+				progressLabel: trimmed || undefined,
+			};
+		}
+		return {
+			...item,
+			progress: trimmed,
+		};
 	}
 
 	private sortItems(items: MediaItem[]): MediaItem[] {

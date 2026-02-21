@@ -15,6 +15,7 @@ export default class MediaTrackerPlugin extends Plugin {
 	logger!: PluginLogger;
 	private refreshTimer: number | null = null;
 	private startupUpdateInProgress = false;
+	private skippedRefreshEvents = 0;
 
 	async onload() {
 		await this.loadSettings();
@@ -112,10 +113,18 @@ export default class MediaTrackerPlugin extends Plugin {
 	}
 
 	scheduleRefresh() {
+		if (this.skippedRefreshEvents > 0) {
+			this.skippedRefreshEvents -= 1;
+			return;
+		}
 		if (this.refreshTimer !== null) {
 			window.clearTimeout(this.refreshTimer);
 		}
 		this.refreshTimer = window.setTimeout(() => this.refreshViews(), 150);
+	}
+
+	suppressNextViewRefresh() {
+		this.skippedRefreshEvents += 1;
 	}
 
 	refreshViews() {

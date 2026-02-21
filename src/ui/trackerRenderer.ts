@@ -43,7 +43,7 @@ export type RenderHandlers = {
 	onContextMenu?: (event: MouseEvent, item: MediaItemLike) => void;
 	onStatusChange?: (item: MediaItemLike, status: MediaStatus) => void;
 	onProgressEdit?: (target: HTMLElement, item: MediaItemLike) => void;
-	onProgressAdvance?: (item: MediaItemLike, nextValue: string) => void;
+	onProgressAdvance?: (target: HTMLElement, item: MediaItemLike, nextValue: string) => void;
 	onLinkOpen?: (url: string) => void;
 	getLinkIconUrl?: (value: string) => string | null;
 };
@@ -83,11 +83,7 @@ export function renderTableRow(item: MediaItemLike, handlers: RenderHandlers): H
 	const progressCell = document.createElement("div");
 	progressCell.classList.add("media-tracker__table-cell");
 	if (NOVEL_PROGRESS_TYPES.has(item.type) || SEASON_EPISODE_TYPES.has(item.type)) {
-		if (item.progress) {
-			progressCell.appendChild(renderProgressMeta(item, handlers, true));
-		} else {
-			progressCell.textContent = item.progress ?? "-";
-		}
+		progressCell.appendChild(renderProgressMeta(item, handlers, true));
 	} else {
 		progressCell.textContent = item.progress ?? "-";
 	}
@@ -155,7 +151,7 @@ export function renderCard(item: MediaItemLike, handlers: RenderHandlers): HTMLE
 
 	const rowTwo = document.createElement("div");
 	rowTwo.classList.add("media-tracker__meta-row");
-	if ((NOVEL_PROGRESS_TYPES.has(item.type) || SEASON_EPISODE_TYPES.has(item.type)) && item.progress) {
+	if (NOVEL_PROGRESS_TYPES.has(item.type) || SEASON_EPISODE_TYPES.has(item.type)) {
 		rowTwo.appendChild(renderProgressMeta(item, handlers));
 	} else if (item.progress) {
 		const progress = document.createElement("div");
@@ -232,17 +228,24 @@ function renderStatusSelect(item: MediaItemLike, handlers: RenderHandlers): HTML
 	return wrapper;
 }
 
-function renderProgressMeta(item: MediaItemLike, handlers: RenderHandlers, compact = false): HTMLElement {
+export function renderProgressMeta(item: MediaItemLike, handlers: RenderHandlers, compact = false): HTMLElement {
 	const wrapper = document.createElement("div");
 	wrapper.classList.add("media-tracker__progress");
 	if (compact) {
 		wrapper.classList.add("media-tracker__progress--compact");
 	}
+	const hasProgress = Boolean(item.progress?.trim());
 
 	const label = document.createElement("button");
 	label.type = "button";
 	label.classList.add("media-tracker__progress-label");
-	label.textContent = item.progress ?? "";
+	if (hasProgress) {
+		label.textContent = item.progress ?? "";
+	} else {
+		label.classList.add("media-tracker__progress-label--empty");
+		label.textContent = " ";
+		setAttrSafe(label, "aria-label", "Set progress");
+	}
 	label.addEventListener("click", (event) => {
 		event.preventDefault();
 		handlers.onProgressEdit?.(label, item);
@@ -251,7 +254,8 @@ function renderProgressMeta(item: MediaItemLike, handlers: RenderHandlers, compa
 	control.classList.add("media-tracker__progress-control");
 	control.appendChild(label);
 
-	const nextValue = getNextProgressValue(item);
+	// Skip expensive progress/badge calculations when there is no stored progress yet.
+	const nextValue = hasProgress ? getNextProgressValue(item) : null;
 	if (nextValue) {
 		const increment = document.createElement("button");
 		increment.type = "button";
@@ -260,13 +264,13 @@ function renderProgressMeta(item: MediaItemLike, handlers: RenderHandlers, compa
 		setAttrSafe(increment, "title", "Advance chapter");
 		increment.addEventListener("click", (event) => {
 			event.preventDefault();
-			handlers.onProgressAdvance?.(item, nextValue);
+			handlers.onProgressAdvance?.(increment, item, nextValue);
 		});
 		control.appendChild(increment);
 	}
 
 	wrapper.appendChild(control);
-	const badge = renderLatestBadge(item);
+	const badge = hasProgress ? renderLatestBadge(item) : null;
 	if (badge) {
 		wrapper.appendChild(badge);
 	}
