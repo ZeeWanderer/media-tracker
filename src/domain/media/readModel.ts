@@ -4,6 +4,15 @@ import {MediaTrackerSettings} from "../../settings";
 import {MEDIA_STATUSES, MEDIA_TYPES, NOVEL_PROGRESS_TYPES, SEASON_EPISODE_TYPES} from "./config";
 import {collectLinks, getAnilistIdFromFrontmatter, getAnilistIdFromLinks, getImdbIdFromFrontmatter, getImdbIdFromLinks} from "./links";
 
+function escapeRegex(value: string): string {
+	return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+const TYPE_FILE_BASENAME_REGEX = new RegExp(
+	`^(?:${MEDIA_TYPES.map((type) => escapeRegex(type)).join("|")})(?:-\\d+)?$`,
+	"i",
+);
+
 function normalizeString(value: unknown): string | undefined {
 	if (typeof value === "string") {
 		const trimmed = value.trim();
@@ -36,8 +45,15 @@ function buildProgress(type: MediaType, frontmatter: Record<string, unknown>): s
 			return label;
 		}
 		const progress = normalizeString(frontmatter.progress ?? frontmatter.chapter);
+		if (!progress) {
+			return undefined;
+		}
+		// Keep explicit textual progress untouched; only prepend unit for pure numeric values.
+		if (!/^\d+(?:\.\d+)?$/.test(progress)) {
+			return progress;
+		}
 		const unit = normalizeString(frontmatter.progressUnit) ?? "ch";
-		return progress ? `${unit} ${progress}` : undefined;
+		return `${unit} ${progress}`;
 	}
 	if (SEASON_EPISODE_TYPES.has(type)) {
 		const season = normalizeString(frontmatter.season);
@@ -84,7 +100,22 @@ function sanitizeSeasonEpisodes(map: Record<string, number> | null): Record<stri
 	return Object.fromEntries(entries.map(([key, val]) => [String(Number(key)), Number(val)]));
 }
 
-function parseMediaItem(file: TFile, app: App): MediaItem | null {
+function isTypeFileBasename(value: string): boolean {
+	return TYPE_FILE_BASENAME_REGEX.test(value.trim());
+}
+
+function resolveFallbackTitle(file: TFile, baseFolder: string): string {
+	const parent = file.parent;
+	if (parent
+		&& parent.path.startsWith(`${baseFolder}/`)
+		&& parent.path !== baseFolder
+		&& isTypeFileBasename(file.basename)) {
+		return parent.name;
+	}
+	return file.basename;
+}
+
+function parseMediaItem(file: TFile, app: App, baseFolder: string): MediaItem | null {
 	const cache = app.metadataCache.getFileCache(file);
 	const frontmatter = cache?.frontmatter ?? {};
 	const type = normalizeType(frontmatter.type ?? frontmatter.media);
@@ -92,7 +123,7 @@ function parseMediaItem(file: TFile, app: App): MediaItem | null {
 		return null;
 	}
 
-	const title = normalizeString(frontmatter.title) ?? file.basename;
+	const title = normalizeString(frontmatter.title) ?? resolveFallbackTitle(file, baseFolder);
 	const status = normalizeStatus(frontmatter.status);
 	const author = normalizeString(frontmatter.author);
 	const progressRaw = normalizeString(frontmatter.progress ?? frontmatter.chapter);
@@ -172,7 +203,7 @@ export function listMediaItems(app: App, settings: MediaTrackerSettings): MediaI
 	const baseFolder = normalizeString(settings.mediaFolder) ?? "Media";
 	const files = app.vault.getFiles().filter((file) => file.path.startsWith(`${baseFolder}/`));
 	const items = files
-		.map((file) => parseMediaItem(file, app))
+		.map((file) => parseMediaItem(file, app, baseFolder))
 		.filter((item): item is MediaItem => item !== null);
 
 	items.sort((a, b) => getTitleSortKey(a.title).localeCompare(getTitleSortKey(b.title)));

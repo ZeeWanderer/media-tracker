@@ -8,6 +8,5 @@ export function listTrackedMedia(app: App, settings: MediaTrackerSettings): Medi
 }
 
 export function listTrackedMediaFiles(app: App, settings: MediaTrackerSettings): TFile[] {
-	const baseFolder = settings.mediaFolder.trim() || "Media";
-	return app.vault.getFiles().filter((file) => file.path.startsWith(`${baseFolder}/`));
+	return listTrackedMedia(app, settings).map((item) => item.file);
 }

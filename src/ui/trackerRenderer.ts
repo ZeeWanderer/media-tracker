@@ -31,6 +31,8 @@ export type MediaItemLike = Pick<
 	| "anilistLatestEpisode"
 	| "anilistNextEpisode"
 	| "anilistNextAiringAt"
+	| "anilistChapters"
+	| "anilistVolumes"
 	| "anilistSeason"
 	| "anilistSeasonTotal"
 	| "anilistSeasonEpisodes"
@@ -327,6 +329,24 @@ function renderLatestBadge(item: MediaItemLike): HTMLElement | null {
 }
 
 function renderAniListBadge(item: MediaItemLike): HTMLElement | null {
+	if (item.type === "manga") {
+		const chapters = item.anilistChapters;
+		const volumes = item.anilistVolumes;
+		if (chapters === undefined && volumes === undefined) {
+			return null;
+		}
+		const currentProgress = getCurrentMangaProgress(item);
+		const isNew = chapters !== undefined
+			? isMangaProgressBehindLatest(chapters, volumes, currentProgress)
+			: false;
+		if (chapters !== undefined && volumes !== undefined) {
+			return createBadge(`${isNew ? "New" : "Latest"} Vol ${volumes} · Ch ${chapters}`, isNew);
+		}
+		if (chapters !== undefined) {
+			return createBadge(`${isNew ? "New" : "Latest"} Ch ${chapters}`, isNew);
+		}
+		return createBadge(`Latest Vol ${volumes}`, false);
+	}
 	if (item.type !== "anime") {
 		return null;
 	}
@@ -367,6 +387,109 @@ function getAniListLatestFromNext(nextEpisode?: number): number | null {
 		return null;
 	}
 	return nextEpisode - 1;
+}
+
+type MangaProgress =
+	| {kind: "chapter"; chapter: number}
+	| {kind: "volumeChapter"; volume: number; chapter: number};
+
+function parseChapterProgressValue(value: string): string | null {
+	const trimmed = value.trim();
+	if (!trimmed.length) {
+		return null;
+	}
+	if (/^\d+(?:\.\d+)?$/.test(trimmed)) {
+		return trimmed;
+	}
+	const prefixed = trimmed.match(/^(?:ch|chapter)\s*(\d+(?:\.\d+)?)$/i);
+	if (prefixed?.[1]) {
+		return prefixed[1];
+	}
+	return null;
+}
+
+function parseMangaProgress(value: string): MangaProgress | null {
+	const trimmed = value.trim();
+	if (!trimmed.length) {
+		return null;
+	}
+	const volumeChapterMatch = trimmed.match(/^(?:vol|volume|v)\s*(\d+)\s*(?:ch|chapter|c)\s*(\d+(?:\.\d+)?)$/i);
+	if (volumeChapterMatch?.[1] && volumeChapterMatch?.[2]) {
+		const volume = Number.parseInt(volumeChapterMatch[1], 10);
+		const chapter = Number.parseFloat(volumeChapterMatch[2]);
+		if (Number.isFinite(volume) && Number.isFinite(chapter)) {
+			return {kind: "volumeChapter", volume, chapter};
+		}
+	}
+	const prefixedChapter = trimmed.match(/^(?:ch|chapter)\s*(\d+(?:\.\d+)?)$/i);
+	if (prefixedChapter?.[1]) {
+		const chapter = Number.parseFloat(prefixedChapter[1]);
+		if (Number.isFinite(chapter)) {
+			return {kind: "chapter", chapter};
+		}
+	}
+	if (/^\d+$/.test(trimmed)) {
+		const chapter = Number.parseInt(trimmed, 10);
+		if (Number.isFinite(chapter)) {
+			return {kind: "chapter", chapter};
+		}
+	}
+	const dotMatch = trimmed.match(/^(\d+)\.(\d+)$/);
+	if (dotMatch?.[1] && dotMatch?.[2]) {
+		// Treat values like "8.33" as volume/chapter shorthand to avoid false
+		// "New" badges when AniList only provides total chapters.
+		if (dotMatch[2].length >= 2) {
+			const volume = Number.parseInt(dotMatch[1], 10);
+			const chapter = Number.parseInt(dotMatch[2], 10);
+			if (Number.isFinite(volume) && Number.isFinite(chapter)) {
+				return {kind: "volumeChapter", volume, chapter};
+			}
+		}
+		const chapter = Number.parseFloat(trimmed);
+		if (Number.isFinite(chapter)) {
+			return {kind: "chapter", chapter};
+		}
+	}
+	return null;
+}
+
+function getCurrentMangaProgress(item: MediaItemLike): MangaProgress | undefined {
+	const candidates = [item.progressRaw, item.progressLabel, item.progress];
+	for (const candidate of candidates) {
+		if (!candidate) {
+			continue;
+		}
+		const parsed = parseMangaProgress(candidate);
+		if (!parsed) {
+			continue;
+		}
+		return parsed;
+	}
+	return undefined;
+}
+
+function isMangaProgressBehindLatest(
+	latestChapters: number,
+	latestVolumes: number | undefined,
+	currentProgress: MangaProgress | undefined,
+): boolean {
+	if (!currentProgress) {
+		return false;
+	}
+	if (currentProgress.kind === "chapter") {
+		return latestChapters > currentProgress.chapter;
+	}
+	if (latestVolumes === undefined) {
+		return false;
+	}
+	if (latestVolumes > currentProgress.volume) {
+		return true;
+	}
+	if (latestVolumes < currentProgress.volume) {
+		return false;
+	}
+	// When volume matches, compare against latest known chapter number.
+	return latestChapters > currentProgress.chapter;
 }
 
 function createLatestBadge(
@@ -489,10 +612,22 @@ export function getNextProgressValue(item: MediaItemLike): string | null {
 		const anilistSeasonEpisodes = item.type === "anime" ? item.anilistSeasonEpisodes : undefined;
 		const anilistSeasonCount = anilistSeasonEpisodes?.[seasonKey];
 		const anilistLatestEpisode = item.type === "anime" ? item.anilistLatestEpisode : undefined;
-		const seasonEpisodeCount = anilistSeasonCount ?? anilistLatestEpisode ?? (isLatestSeason
+		const knownCurrentSeasonEpisodeCount = anilistSeasonCount ?? (isLatestSeason
 			? item.tmdbLatestEpisode
-			: item.tmdbSeasonEpisodes?.[seasonKey] ?? item.tmdbLatestSeasonEpisodes);
-		if (seasonEpisodeCount && item.episode >= seasonEpisodeCount) {
+			: item.tmdbSeasonEpisodes?.[seasonKey]);
+		const fallbackSeasonEpisodeCount = anilistLatestEpisode ?? item.tmdbLatestSeasonEpisodes;
+		const seasonEpisodeCount = knownCurrentSeasonEpisodeCount ?? (item.season > 0 ? fallbackSeasonEpisodeCount : undefined);
+
+		// Do not auto-advance "season 0" unless we actually know that season's episode count.
+		if (item.season <= 0 && seasonEpisodeCount === undefined) {
+			return null;
+		}
+		// A known count of 0 means announced season with no released episodes yet.
+		if (seasonEpisodeCount === 0) {
+			return null;
+		}
+
+		if (seasonEpisodeCount !== undefined && item.episode >= seasonEpisodeCount) {
 			if (item.type === "anime" && anilistSeasonCount) {
 				if (item.anilistSeasonTotal && item.season < item.anilistSeasonTotal) {
 					return `S${item.season + 1}E1`;
@@ -507,22 +642,16 @@ export function getNextProgressValue(item: MediaItemLike): string | null {
 		return `S${item.season}E${item.episode + 1}`;
 	}
 	const raw = item.progressRaw?.trim();
-	if (raw && /^\d+(?:\.\d+)?$/.test(raw)) {
-		return incrementNumericString(raw);
+	const rawChapter = raw ? parseChapterProgressValue(raw) : null;
+	if (rawChapter) {
+		return incrementNumericString(rawChapter);
 	}
 	const label = item.progressLabel?.trim() ?? item.progress?.trim();
-	if (!label) {
+	const labelChapter = label ? parseChapterProgressValue(label) : null;
+	if (!labelChapter) {
 		return null;
 	}
-	const match = label.match(/^(?:ch|chapter)?\s*(\d+(?:\.\d+)?)$/i);
-	if (!match) {
-		return null;
-	}
-	const value = match[1];
-	if (!value) {
-		return null;
-	}
-	return incrementNumericString(value);
+	return incrementNumericString(labelChapter);
 }
 
 function getLatestSeasonEpisode(item: MediaItemLike): {season: number; episode: number} | null {

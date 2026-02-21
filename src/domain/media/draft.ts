@@ -13,16 +13,43 @@ function normalizeText(value?: string): string | undefined {
 	return trimmed.length ? trimmed : undefined;
 }
 
-function normalizePositiveInteger(value?: string): string | undefined {
+function normalizeNonNegativeInteger(value?: string): string | undefined {
 	const trimmed = normalizeText(value);
 	if (!trimmed || !/^\d+$/.test(trimmed)) {
 		return undefined;
 	}
 	const parsed = Number.parseInt(trimmed, 10);
-	if (!Number.isFinite(parsed) || parsed <= 0) {
+	if (!Number.isFinite(parsed) || parsed < 0) {
 		return undefined;
 	}
 	return String(parsed);
+}
+
+function normalizePositiveInteger(value?: string): string | undefined {
+	const parsed = normalizeNonNegativeInteger(value);
+	if (!parsed) {
+		return undefined;
+	}
+	if (Number.parseInt(parsed, 10) <= 0) {
+		return undefined;
+	}
+	return parsed;
+}
+
+function normalizeProgressValue(value?: string): string | undefined {
+	const trimmed = normalizeText(value);
+	if (!trimmed) {
+		return undefined;
+	}
+	// Keep free-form progress text, but canonicalize pure integers (including 0).
+	if (/^\d+$/.test(trimmed)) {
+		const parsed = Number.parseInt(trimmed, 10);
+		if (!Number.isFinite(parsed) || parsed < 0) {
+			return undefined;
+		}
+		return String(parsed);
+	}
+	return trimmed;
 }
 
 function formatYamlString(value: string): string {
@@ -84,18 +111,18 @@ export function sanitizeNewMediaDraft(draft: NewMediaDraft): NewMediaDraft {
 
 	if (NOVEL_PROGRESS_TYPES.has(type)) {
 		const author = normalizeText(draft.author);
-		const progress = normalizeText(draft.progress);
+		const progress = normalizeProgressValue(draft.progress);
 		if (author) {
 			normalized.author = author;
 		}
-		if (progress) {
+		if (progress !== undefined) {
 			normalized.progress = progress;
 		}
 	}
 
 	if (SEASON_EPISODE_TYPES.has(type)) {
-		const season = normalizePositiveInteger(draft.season);
-		const episode = normalizePositiveInteger(draft.episode);
+		const season = normalizeNonNegativeInteger(draft.season);
+		const episode = normalizeNonNegativeInteger(draft.episode);
 		if (season && episode) {
 			normalized.season = season;
 			normalized.episode = episode;
