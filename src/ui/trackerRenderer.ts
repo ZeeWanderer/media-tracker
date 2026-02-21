@@ -479,17 +479,18 @@ function isMangaProgressBehindLatest(
 	if (currentProgress.kind === "chapter") {
 		return latestChapters > currentProgress.chapter;
 	}
+	// Prefer through-chapter numbering semantics for x.y progress.
+	if (latestChapters > currentProgress.chapter) {
+		return true;
+	}
+	if (latestChapters < currentProgress.chapter) {
+		return false;
+	}
+	// On equal chapter numbers, use volume as a tie-breaker when available.
 	if (latestVolumes === undefined) {
 		return false;
 	}
-	if (latestVolumes > currentProgress.volume) {
-		return true;
-	}
-	if (latestVolumes < currentProgress.volume) {
-		return false;
-	}
-	// When volume matches, compare against latest known chapter number.
-	return latestChapters > currentProgress.chapter;
+	return latestVolumes > currentProgress.volume;
 }
 
 function createLatestBadge(

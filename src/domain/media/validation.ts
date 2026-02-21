@@ -10,6 +10,9 @@ export type MediaValidationIssue = {
 
 function toTrimmedString(value: unknown): string | undefined {
 	if (typeof value !== "string") {
+		if (typeof value === "number" && Number.isFinite(value)) {
+			return String(value);
+		}
 		return undefined;
 	}
 	const trimmed = value.trim();
