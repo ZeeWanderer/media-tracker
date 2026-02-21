@@ -254,7 +254,7 @@ export function renderProgressMeta(item: MediaItemLike, handlers: RenderHandlers
 	control.classList.add("media-tracker__progress-control");
 	control.appendChild(label);
 
-	// Skip expensive progress/badge calculations when there is no stored progress yet.
+	// Keep auto-increment gated on explicit progress, but always render latest badges.
 	const nextValue = hasProgress ? getNextProgressValue(item) : null;
 	if (nextValue) {
 		const increment = document.createElement("button");
@@ -270,7 +270,7 @@ export function renderProgressMeta(item: MediaItemLike, handlers: RenderHandlers
 	}
 
 	wrapper.appendChild(control);
-	const badge = hasProgress ? renderLatestBadge(item) : null;
+	const badge = renderLatestBadge(item);
 	if (badge) {
 		wrapper.appendChild(badge);
 	}

@@ -17,6 +17,7 @@ export default class MediaTrackerPlugin extends Plugin {
 	private startupUpdateInProgress = false;
 	private skippedRefreshEvents = 0;
 	private activeUpdateRun: UpdateLogRun | null = null;
+	private pendingUpdateRunPersistTimer: number | null = null;
 
 	async onload() {
 		await this.loadSettings();
@@ -27,6 +28,7 @@ export default class MediaTrackerPlugin extends Plugin {
 			maxLogFiles: this.settings.loggingMaxFiles,
 		});
 		this.logger.info("plugin", "loaded", "Media Tracker loaded.");
+		await this.restorePendingUpdateRunIfAny();
 
 		this.registerView(MEDIA_TRACKER_VIEW, (leaf) => new MediaTrackerView(leaf, this));
 		this.registerView(MEDIA_TRACKER_UPDATE_LOG_VIEW, (leaf) => new MediaTrackerUpdateLogView(leaf, this));
@@ -46,6 +48,7 @@ export default class MediaTrackerPlugin extends Plugin {
 		if (this.refreshTimer !== null) {
 			window.clearTimeout(this.refreshTimer);
 		}
+		this.flushPendingUpdateRunPersist();
 		this.logger?.info("plugin", "unloaded", "Media Tracker unloaded.");
 		void this.logger?.dispose();
 		this.faviconCache?.dispose();
@@ -88,6 +91,11 @@ export default class MediaTrackerPlugin extends Plugin {
 		}
 		if (!Array.isArray(this.settings.updateLogRuns)) {
 			this.settings.updateLogRuns = [];
+		} else {
+			this.settings.updateLogRuns = this.settings.updateLogRuns.filter((run) => this.isValidUpdateLogRun(run));
+		}
+		if (!this.isValidUpdateLogRun(this.settings.pendingUpdateRun)) {
+			delete this.settings.pendingUpdateRun;
 		}
 		if (typeof this.settings.loggingEnabled !== "boolean") {
 			this.settings.loggingEnabled = DEFAULT_SETTINGS.loggingEnabled;
@@ -154,10 +162,23 @@ export default class MediaTrackerPlugin extends Plugin {
 	}
 
 	setActiveUpdateRun(run: UpdateLogRun | null) {
-		this.activeUpdateRun = run ? {
+		const hadPendingRun = Boolean(this.settings.pendingUpdateRun);
+		this.activeUpdateRun = run ? this.cloneUpdateRun({
 			...run,
-			entries: [...run.entries],
-		} : null;
+			state: "in-progress",
+		}) : null;
+		this.settings.pendingUpdateRun = this.activeUpdateRun
+			? this.cloneUpdateRun(this.activeUpdateRun)
+			: undefined;
+		if (this.activeUpdateRun) {
+			if (!hadPendingRun) {
+				this.flushPendingUpdateRunPersist();
+			} else {
+				this.schedulePendingUpdateRunPersist();
+			}
+		} else {
+			this.flushPendingUpdateRunPersist();
+		}
 		this.refreshUpdateLogViews();
 	}
 
@@ -165,10 +186,7 @@ export default class MediaTrackerPlugin extends Plugin {
 		if (!this.activeUpdateRun) {
 			return null;
 		}
-		return {
-			...this.activeUpdateRun,
-			entries: [...this.activeUpdateRun.entries],
-		};
+		return this.cloneUpdateRun(this.activeUpdateRun);
 	}
 
 	private getStartupUpdateIntervalMs(): number {
@@ -197,12 +215,95 @@ export default class MediaTrackerPlugin extends Plugin {
 	private appendUpdateRun(run: UpdateLogRun) {
 		const maxRuns = 25;
 		const maxEntriesPerRun = 1500;
-		const trimmedRun: UpdateLogRun = {
+		const trimmedRun = this.cloneUpdateRun({
 			...run,
+			state: run.state ?? "completed",
 			entries: run.entries.slice(0, maxEntriesPerRun),
-		};
+		});
 		const currentRuns = this.settings.updateLogRuns ?? [];
 		this.settings.updateLogRuns = [trimmedRun, ...currentRuns].slice(0, maxRuns);
+	}
+
+	private cloneUpdateRun(run: UpdateLogRun): UpdateLogRun {
+		return {
+			...run,
+			providerProgress: run.providerProgress
+				? {
+					anilist: {...run.providerProgress.anilist},
+					tmdb: {...run.providerProgress.tmdb},
+				}
+				: undefined,
+			entries: [...run.entries],
+		};
+	}
+
+	private isValidUpdateLogRun(run: unknown): run is UpdateLogRun {
+		if (!run || typeof run !== "object") {
+			return false;
+		}
+		const value = run as Partial<UpdateLogRun>;
+		return Number.isFinite(value.startedAt)
+			&& Number.isFinite(value.finishedAt)
+			&& Number.isFinite(value.durationMs)
+			&& Number.isFinite(value.total)
+			&& Number.isFinite(value.updated)
+			&& Number.isFinite(value.unchanged)
+			&& Number.isFinite(value.failed)
+			&& Number.isFinite(value.skipped)
+			&& Array.isArray(value.entries);
+	}
+
+	private schedulePendingUpdateRunPersist() {
+		if (this.pendingUpdateRunPersistTimer !== null) {
+			return;
+		}
+		this.pendingUpdateRunPersistTimer = window.setTimeout(() => {
+			this.pendingUpdateRunPersistTimer = null;
+			void this.persistPendingUpdateRun();
+		}, 1500);
+	}
+
+	private flushPendingUpdateRunPersist() {
+		if (this.pendingUpdateRunPersistTimer !== null) {
+			window.clearTimeout(this.pendingUpdateRunPersistTimer);
+			this.pendingUpdateRunPersistTimer = null;
+		}
+		void this.persistPendingUpdateRun();
+	}
+
+	private async persistPendingUpdateRun() {
+		try {
+			await this.saveData(this.settings);
+		} catch (error) {
+			this.logger?.warn("refresh", "pending_run_persist_failed", "Failed to persist pending update run.", {
+				error: error instanceof Error ? error.message : String(error),
+			});
+		}
+	}
+
+	private async restorePendingUpdateRunIfAny() {
+		const pendingRun = this.settings.pendingUpdateRun;
+		if (!this.isValidUpdateLogRun(pendingRun)) {
+			delete this.settings.pendingUpdateRun;
+			return;
+		}
+		const now = Date.now();
+		const startedAt = Number.isFinite(pendingRun.startedAt) && pendingRun.startedAt > 0
+			? pendingRun.startedAt
+			: now;
+		this.appendUpdateRun({
+			...this.cloneUpdateRun(pendingRun),
+			startedAt,
+			finishedAt: now,
+			durationMs: Math.max(0, now - startedAt),
+			state: "interrupted",
+		});
+		delete this.settings.pendingUpdateRun;
+		await this.saveData(this.settings);
+		this.logger.warn("refresh", "interrupted_run_recovered", "Recovered interrupted update run from previous session.", {
+			total: pendingRun.total,
+			processed: pendingRun.entries.length,
+		});
 	}
 
 	private async runStartupLibraryUpdateIfDue() {

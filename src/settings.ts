@@ -19,6 +19,7 @@ export interface MediaTrackerSettings {
 	startupLibraryUpdateThrottleMode: StartupUpdateThrottleMode;
 	startupLibraryUpdateIntervalHours: number;
 	startupLibraryUpdateLastRun?: number;
+	pendingUpdateRun?: UpdateLogRun;
 	updateLogRuns: UpdateLogRun[];
 	loggingEnabled: boolean;
 	loggingLevel: PluginLogLevel;

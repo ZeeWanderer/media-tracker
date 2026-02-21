@@ -13,6 +13,10 @@ type RefreshItemResult = {
 };
 
 type RefreshQueue = "anilist" | "tmdb";
+type QueuedRefreshTarget = {
+	item: MediaItem;
+	queue: RefreshQueue;
+};
 
 function toEntry(item: MediaItem, result: RefreshItemResult): UpdateLogEntry {
 	return {
@@ -50,6 +54,38 @@ function toUnexpectedFailure(queue: RefreshQueue, error: unknown): RefreshItemRe
 		status: "failed",
 		message: `Unexpected refresh error: ${detail}`,
 	};
+}
+
+function normalizeCheckedAt(value: number | undefined): number | undefined {
+	if (!Number.isFinite(value) || value === undefined || value <= 0) {
+		return undefined;
+	}
+	return Math.floor(value);
+}
+
+function getTargetCheckedAt(target: QueuedRefreshTarget): number | undefined {
+	if (target.queue === "anilist") {
+		return normalizeCheckedAt(target.item.anilistLastChecked);
+	}
+	return normalizeCheckedAt(target.item.tmdbLastChecked);
+}
+
+function compareTargetsByRefreshPriority(a: QueuedRefreshTarget, b: QueuedRefreshTarget): number {
+	const aCheckedAt = getTargetCheckedAt(a);
+	const bCheckedAt = getTargetCheckedAt(b);
+	const aMissing = aCheckedAt === undefined;
+	const bMissing = bCheckedAt === undefined;
+	if (aMissing && !bMissing) {
+		return -1;
+	}
+	if (!aMissing && bMissing) {
+		return 1;
+	}
+	if (aCheckedAt !== undefined && bCheckedAt !== undefined && aCheckedAt !== bCheckedAt) {
+		// Older checks run first so partial runs update the stalest entries first.
+		return aCheckedAt - bCheckedAt;
+	}
+	return a.item.title.localeCompare(b.item.title);
 }
 
 export async function refreshTrackedMediaLatest(
@@ -95,6 +131,7 @@ export async function refreshTrackedMedia(
 	const targets = items
 		.map((item) => ({item, queue: getRefreshQueue(item)}))
 		.filter((target): target is {item: MediaItem; queue: RefreshQueue} => target.queue !== null);
+	targets.sort(compareTargetsByRefreshPriority);
 	const total = targets.length;
 	const entries: UpdateLogEntry[] = [];
 	let updated = 0;

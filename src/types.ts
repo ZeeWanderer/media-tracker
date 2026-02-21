@@ -5,6 +5,7 @@ export type MediaStatus = "planned" | "active" | "completed" | "on-hold" | "drop
 export type UpdateNotificationMode = "quiet" | "summary" | "verbose";
 export type UpdateProvider = "anilist" | "tmdb" | "none";
 export type UpdateEntryStatus = "updated" | "unchanged" | "failed" | "skipped";
+export type UpdateRunState = "completed" | "in-progress" | "interrupted";
 
 export interface MediaItem {
 	file: TFile;
@@ -77,6 +78,7 @@ export interface UpdateLogRun {
 		anilist: {total: number; completed: number};
 		tmdb: {total: number; completed: number};
 	};
+	state?: UpdateRunState;
 	entries: UpdateLogEntry[];
 }
 

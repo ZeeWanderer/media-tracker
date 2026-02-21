@@ -13,27 +13,8 @@ function formatStatus(value: string): string {
 	return value.replace("-", " ");
 }
 
-function sortEntries(entries: UpdateLogEntry[]): UpdateLogEntry[] {
-	const severity = (entry: UpdateLogEntry): number => {
-		switch (entry.status) {
-			case "failed":
-				return 0;
-			case "updated":
-				return 1;
-			case "unchanged":
-				return 2;
-			case "skipped":
-			default:
-				return 3;
-		}
-	};
-	return [...entries].sort((a, b) => {
-		const diff = severity(a) - severity(b);
-		if (diff !== 0) {
-			return diff;
-		}
-		return a.title.localeCompare(b.title);
-	});
+function sortEntriesByMostRecent(entries: UpdateLogEntry[]): UpdateLogEntry[] {
+	return [...entries].reverse();
 }
 
 function formatProviderProgress(
@@ -44,6 +25,16 @@ function formatProviderProgress(
 		return `${provider} 0/0`;
 	}
 	return `${provider} ${progress.completed}/${progress.total}`;
+}
+
+function resolveRunState(run: UpdateLogRun, inProgress: boolean): "in-progress" | "interrupted" | "completed" {
+	if (inProgress) {
+		return "in-progress";
+	}
+	if (run.state === "interrupted") {
+		return "interrupted";
+	}
+	return "completed";
 }
 
 export class MediaTrackerUpdateLogView extends ItemView {
@@ -101,10 +92,19 @@ export class MediaTrackerUpdateLogView extends ItemView {
 	private renderRun(container: HTMLElement, run: UpdateLogRun, inProgress = false) {
 		const card = container.createDiv({cls: "media-tracker__update-run"});
 		const started = new Date(run.startedAt);
+		const runState = resolveRunState(run, inProgress);
 		const titleRow = card.createDiv({cls: "media-tracker__update-run-title"});
 		titleRow.createEl("h3", {text: started.toLocaleString()});
-		if (inProgress) {
-			titleRow.createEl("span", {text: "In progress", cls: "media-tracker__update-run-badge"});
+		if (runState === "in-progress") {
+			titleRow.createEl("span", {
+				text: "In progress",
+				cls: "media-tracker__update-run-badge media-tracker__update-run-badge--in-progress",
+			});
+		} else if (runState === "interrupted") {
+			titleRow.createEl("span", {
+				text: "Interrupted",
+				cls: "media-tracker__update-run-badge media-tracker__update-run-badge--interrupted",
+			});
 		}
 		titleRow.createEl("span", {text: formatDuration(run.durationMs), cls: "media-tracker__update-run-duration"});
 
@@ -112,14 +112,14 @@ export class MediaTrackerUpdateLogView extends ItemView {
 		summary.setText(
 			`${run.total} checked · ${run.updated} updated · ${run.unchanged} unchanged · ${run.failed} failed · ${run.skipped} skipped`,
 		);
-		if (inProgress && run.providerProgress) {
+		if (runState !== "completed" && run.providerProgress) {
 			const providerSummary = card.createDiv({cls: "media-tracker__update-run-provider-summary"});
 			providerSummary.setText(
 				`${formatProviderProgress("AniList", run.providerProgress.anilist)} · ${formatProviderProgress("TMDB", run.providerProgress.tmdb)}`,
 			);
 		}
 
-		const entries = inProgress ? run.entries : sortEntries(run.entries);
+		const entries = sortEntriesByMostRecent(run.entries);
 		if (!entries.length) {
 			return;
 		}
