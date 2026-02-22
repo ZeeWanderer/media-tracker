@@ -15,6 +15,7 @@ import {
 	DisplayMode,
 	matchesTrackerFilters,
 	matchesTrackerSearch,
+	normalizeTrackerSearchQuery,
 	sortTrackerItems,
 	TrackerFilterState,
 	StatusFilter,
@@ -29,6 +30,10 @@ import type {UpdateLogRun} from "../core/updateTypes";
 import {renderTrackerControls} from "./trackerViewControls";
 import type {SortDirection, SortKey} from "./trackerRenderTypes";
 export {MEDIA_TRACKER_VIEW};
+
+const SEARCH_RENDER_DEBOUNCE_MS = 120;
+const ICON_REFRESH_DEBOUNCE_MS = 160;
+const MAX_ICON_PREFETCH_ITEMS = 200;
 
 type TrackerViewPluginDeps = {
 	app: App;
@@ -59,6 +64,8 @@ export class MediaTrackerView extends ItemView {
 	private trackedItemsCache: MediaItem[] = [];
 	private trackedItemsCacheDirty = true;
 	private visibleItems: MediaItem[] = [];
+	private searchRenderTimer: number | null = null;
+	private iconRefreshTimer: number | null = null;
 
 	constructor(leaf: WorkspaceLeaf, plugin: TrackerViewPluginDeps) {
 		super(leaf);
@@ -117,6 +124,11 @@ export class MediaTrackerView extends ItemView {
 		this.requestRender();
 	}
 
+	async onClose() {
+		this.cancelSearchRenderTimer();
+		this.cancelIconRefreshTimer();
+	}
+
 	invalidateItemsCache() {
 		this.trackedItemsCacheDirty = true;
 	}
@@ -149,16 +161,46 @@ export class MediaTrackerView extends ItemView {
 	requestRender() {
 		this.render();
 		this.gitService.ensureRepositoryState();
-		void this.ensureVisibleIcons();
+		this.scheduleVisibleIconsRefresh();
 	}
 
 	private async ensureVisibleIcons() {
-		const snapshot = [...this.visibleItems];
+		const snapshot = this.visibleItems.slice(0, MAX_ICON_PREFETCH_ITEMS);
 		if (!snapshot.length) {
 			return;
 		}
 		await this.iconService.ensureKnownIconAssets();
 		await this.iconService.ensureFavicons(snapshot);
+	}
+
+	private cancelSearchRenderTimer() {
+		if (this.searchRenderTimer !== null) {
+			window.clearTimeout(this.searchRenderTimer);
+			this.searchRenderTimer = null;
+		}
+	}
+
+	private scheduleSearchRender() {
+		this.cancelSearchRenderTimer();
+		this.searchRenderTimer = window.setTimeout(() => {
+			this.searchRenderTimer = null;
+			this.requestRender();
+		}, SEARCH_RENDER_DEBOUNCE_MS);
+	}
+
+	private cancelIconRefreshTimer() {
+		if (this.iconRefreshTimer !== null) {
+			window.clearTimeout(this.iconRefreshTimer);
+			this.iconRefreshTimer = null;
+		}
+	}
+
+	private scheduleVisibleIconsRefresh() {
+		this.cancelIconRefreshTimer();
+		this.iconRefreshTimer = window.setTimeout(() => {
+			this.iconRefreshTimer = null;
+			void this.ensureVisibleIcons();
+		}, ICON_REFRESH_DEBOUNCE_MS);
 	}
 
 	render() {
@@ -253,15 +295,16 @@ export class MediaTrackerView extends ItemView {
 				statusFilter: this.statusFilter,
 				displayMode: this.displayMode,
 			},
-			{
-				onSearchChange: (value) => {
-					this.searchQuery = value;
-					this.requestRender();
-				},
-				onSearchClear: () => {
-					this.searchQuery = "";
-					this.requestRender();
-				},
+				{
+					onSearchChange: (value) => {
+						this.searchQuery = value;
+						this.scheduleSearchRender();
+					},
+					onSearchClear: () => {
+						this.searchQuery = "";
+						this.cancelSearchRenderTimer();
+						this.requestRender();
+					},
 				onTypeFilterChange: (value) => {
 					this.typeFilter = value;
 					this.requestRender();
@@ -288,13 +331,21 @@ export class MediaTrackerView extends ItemView {
 			clearButton?.toggleClass("is-visible", !!searchInput.value);
 		}
 
-		const items = this.getTrackedItems();
-		const filterState = this.getFilterState();
-		const filtered = items
-			.filter((item) => matchesTrackerFilters(item, filterState))
-			.filter((item) => matchesTrackerSearch(item, filterState.searchQuery));
-		const sorted = this.displayMode === "details" ? sortTrackerItems(filtered, filterState) : filtered;
-		this.visibleItems = filtered;
+			const items = this.getTrackedItems();
+			const filterState = this.getFilterState();
+			const normalizedSearchQuery = normalizeTrackerSearchQuery(filterState.searchQuery);
+			const filtered: MediaItem[] = [];
+			for (const item of items) {
+				if (!matchesTrackerFilters(item, filterState)) {
+					continue;
+				}
+				if (!matchesTrackerSearch(item, normalizedSearchQuery)) {
+					continue;
+				}
+				filtered.push(item);
+			}
+			const sorted = this.displayMode === "details" ? sortTrackerItems(filtered, filterState) : filtered;
+			this.visibleItems = filtered;
 
 		if (filtered.length === 0) {
 			const empty = contentEl.createDiv({cls: "media-tracker__empty"});
@@ -302,20 +353,24 @@ export class MediaTrackerView extends ItemView {
 			return;
 		}
 
-			const handlers = this.interactionController.getRenderHandlers();
-		if (this.displayMode === "details") {
-			const list = contentEl.createDiv({cls: "media-tracker__table"});
-			list.appendChild(renderTableHeader(this.sortKey, this.sortDirection, (key) => this.handleSortChange(key)));
-			for (const item of sorted) {
-				list.appendChild(renderTableRow(item, handlers));
-			}
-		} else {
-			const list = contentEl.createDiv({cls: "media-tracker__list"});
-			for (const item of filtered) {
-				list.appendChild(renderCard(item, handlers));
+				const handlers = this.interactionController.getRenderHandlers();
+			if (this.displayMode === "details") {
+				const list = contentEl.createDiv({cls: "media-tracker__table"});
+				list.appendChild(renderTableHeader(this.sortKey, this.sortDirection, (key) => this.handleSortChange(key)));
+				const fragment = document.createDocumentFragment();
+				for (const item of sorted) {
+					fragment.appendChild(renderTableRow(item, handlers));
+				}
+				list.appendChild(fragment);
+			} else {
+				const list = contentEl.createDiv({cls: "media-tracker__list"});
+				const fragment = document.createDocumentFragment();
+				for (const item of filtered) {
+					fragment.appendChild(renderCard(item, handlers));
+				}
+				list.appendChild(fragment);
 			}
 		}
-	}
 
 	private handleSortChange(key: SortKey) {
 		if (this.sortKey === key) {

@@ -31,14 +31,17 @@ export function matchesTrackerFilters(item: MediaItem, state: TrackerFilterState
 	return true;
 }
 
-export function matchesTrackerSearch(item: MediaItem, searchQuery: string): boolean {
-	const query = searchQuery.trim().toLowerCase();
-	if (!query.length) {
+export function normalizeTrackerSearchQuery(searchQuery: string): string {
+	return searchQuery.trim().toLowerCase();
+}
+
+export function matchesTrackerSearch(item: MediaItem, normalizedSearchQuery: string): boolean {
+	if (!normalizedSearchQuery.length) {
 		return true;
 	}
 	const title = item.title.toLowerCase();
 	const author = item.author ? item.author.toLowerCase() : "";
-	return title.includes(query) || author.includes(query);
+	return title.includes(normalizedSearchQuery) || author.includes(normalizedSearchQuery);
 }
 
 export function sortTrackerItems(items: MediaItem[], state: TrackerFilterState): MediaItem[] {
