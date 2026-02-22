@@ -56,7 +56,7 @@ export class StartupLibraryUpdateService {
 			await executeLibraryRefresh(
 				{
 					getSettings: () => this.deps.getSettings(),
-					runRefresh: (_settings, targets, _onProgress, onRunUpdate) => this.deps.refreshTrackedItems(targets, onRunUpdate),
+					runRefresh: (targets, _onProgress, onRunUpdate) => this.deps.refreshTrackedItems(targets, onRunUpdate),
 					setActiveUpdateRun: (run) => this.deps.setActiveUpdateRun(run),
 					recordCompletedUpdateRun: (run) => this.deps.recordCompletedUpdateRun(run),
 					openUpdateLog: () => this.deps.openUpdateLog(),

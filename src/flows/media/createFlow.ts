@@ -5,7 +5,7 @@ import {ANILIST_TYPES, IMDB_TYPES} from "../../domain/media/config";
 import {sanitizeMediaFileName, sanitizeNewMediaDraft} from "../../domain/media/draft";
 import {extractAnilistId, extractImdbId, getAnilistIdFromLinks, getImdbIdFromLinks, setLinks} from "../../domain/media/links";
 import {updateMediaFrontmatter} from "../../domain/media/frontmatter";
-import {listTrackedMedia} from "./queryFlow";
+import {listMediaItems} from "../../domain/media/readModel";
 
 async function ensureFolder(app: App, folder: string) {
 	const segments = folder.split("/").filter((segment) => segment.length);
@@ -196,7 +196,7 @@ export async function createMediaNoteFromDraft(
 	const normalizedDraft = sanitizeNewMediaDraft(draft);
 	const baseFolder = settings.mediaFolder.trim() || "Media";
 	await ensureFolder(app, baseFolder);
-	const existingItems = listTrackedMedia(app, settings);
+	const existingItems = listMediaItems(app, settings);
 
 	const draftImdbId = resolveDraftImdbId(normalizedDraft);
 	const draftAnilistId = resolveDraftAnilistId(normalizedDraft);

@@ -12,6 +12,9 @@ type ViewRefreshManagerDeps = {
 export class ViewRefreshManager {
 	private refreshTimer: number | null = null;
 	private skippedRefreshEvents = 0;
+	private pendingTrackerRefresh = false;
+	private pendingUpdateLogRefresh = false;
+	private pendingPluginLogRefresh = false;
 
 	constructor(private readonly deps: ViewRefreshManagerDeps) {}
 
@@ -20,17 +23,19 @@ export class ViewRefreshManager {
 			window.clearTimeout(this.refreshTimer);
 			this.refreshTimer = null;
 		}
+		this.pendingTrackerRefresh = false;
+		this.pendingUpdateLogRefresh = false;
+		this.pendingPluginLogRefresh = false;
 	}
 
 	scheduleRefresh() {
-		if (this.skippedRefreshEvents > 0) {
-			this.skippedRefreshEvents -= 1;
+		if (this.shouldSkipScheduledRefresh()) {
 			return;
 		}
-		if (this.refreshTimer !== null) {
-			window.clearTimeout(this.refreshTimer);
-		}
-		this.refreshTimer = window.setTimeout(() => this.refreshViews(), 150);
+		this.pendingTrackerRefresh = true;
+		this.pendingUpdateLogRefresh = true;
+		this.pendingPluginLogRefresh = true;
+		this.scheduleDeferredRefresh();
 	}
 
 	suppressNextViewRefresh() {
@@ -42,7 +47,7 @@ export class ViewRefreshManager {
 			return;
 		}
 		this.invalidateTrackerItemCaches();
-		this.scheduleRefresh();
+		this.scheduleTrackerRefresh();
 	}
 
 	handleVaultDataMutation(file: TAbstractFile, oldPath?: string) {
@@ -50,13 +55,57 @@ export class ViewRefreshManager {
 			return;
 		}
 		this.invalidateTrackerItemCaches();
-		this.scheduleRefresh();
+		this.scheduleTrackerRefresh();
 	}
 
 	refreshViews() {
 		this.deps.refreshTrackerViews();
 		this.deps.refreshUpdateLogViews();
 		this.deps.refreshPluginLogViews();
+	}
+
+	private shouldSkipScheduledRefresh(): boolean {
+		if (this.skippedRefreshEvents > 0) {
+			this.skippedRefreshEvents -= 1;
+			return true;
+		}
+		return false;
+	}
+
+	private scheduleTrackerRefresh() {
+		if (this.shouldSkipScheduledRefresh()) {
+			return;
+		}
+		this.pendingTrackerRefresh = true;
+		this.scheduleDeferredRefresh();
+	}
+
+	private scheduleDeferredRefresh() {
+		if (this.refreshTimer !== null) {
+			window.clearTimeout(this.refreshTimer);
+		}
+		this.refreshTimer = window.setTimeout(() => {
+			this.refreshTimer = null;
+			this.flushPendingRefreshes();
+		}, 150);
+	}
+
+	private flushPendingRefreshes() {
+		const shouldRefreshTracker = this.pendingTrackerRefresh;
+		const shouldRefreshUpdateLog = this.pendingUpdateLogRefresh;
+		const shouldRefreshPluginLog = this.pendingPluginLogRefresh;
+		this.pendingTrackerRefresh = false;
+		this.pendingUpdateLogRefresh = false;
+		this.pendingPluginLogRefresh = false;
+		if (shouldRefreshTracker) {
+			this.deps.refreshTrackerViews();
+		}
+		if (shouldRefreshUpdateLog) {
+			this.deps.refreshUpdateLogViews();
+		}
+		if (shouldRefreshPluginLog) {
+			this.deps.refreshPluginLogViews();
+		}
 	}
 
 	invalidateTrackerItemCaches() {

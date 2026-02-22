@@ -56,9 +56,9 @@ export class TrackerRefreshService {
 		await executeLibraryRefresh(
 			{
 				getSettings: () => this.deps.getSettings(),
-				runRefresh: (settings, targets, onProgress, onRunUpdate) => refreshTrackedMedia(
+				runRefresh: (targets, onProgress, onRunUpdate) => refreshTrackedMedia(
 					this.deps.app,
-					settings,
+					this.deps.getSettings(),
 					targets,
 					onProgress,
 					onRunUpdate,

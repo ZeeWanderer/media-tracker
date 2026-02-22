@@ -1,5 +1,6 @@
 import {App, FileSystemAdapter} from "obsidian";
 import * as path from "path";
+import {getPluginCacheDirectory, getPluginLogsDirectory, getPluginRootPath} from "../storage/pluginPaths";
 
 export type RepoScopePath = {
 	repoRelativePath: string;
@@ -75,7 +76,7 @@ export function resolveCommitScopePaths(
 	pluginId: string,
 ): RepoScopePath[] {
 	const normalizedMediaFolder = normalizeVaultRelativePath(mediaFolder) || "Media";
-	const pluginRoot = normalizeVaultRelativePath(`${app.vault.configDir}/plugins/${pluginId}`);
+	const pluginRoot = normalizeVaultRelativePath(getPluginRootPath(app, pluginId));
 	const candidates = [normalizedMediaFolder, pluginRoot];
 	const paths = new Map<string, RepoScopePath>();
 	for (const candidate of candidates) {
@@ -89,9 +90,10 @@ export function resolveCommitScopePaths(
 }
 
 export function getPluginGitignoreEntries(app: App, pluginId: string): string[] {
-	const configDir = app.vault.configDir.replace(/^\/+|\/+$/g, "");
+	const pluginCacheDir = normalizeVaultRelativePath(getPluginCacheDirectory(app, pluginId));
+	const pluginLogsDir = normalizeVaultRelativePath(getPluginLogsDirectory(app, pluginId));
 	return [
-		`${configDir}/plugins/${pluginId}/cache/`,
-		`${configDir}/plugins/${pluginId}/logs/`,
+		`${pluginCacheDir}/`,
+		`${pluginLogsDir}/`,
 	];
 }

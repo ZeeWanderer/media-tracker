@@ -6,8 +6,9 @@ import {MediaTrackerUpdateLogView, openMediaUpdateLog} from "./ui/updateLogView"
 import {MediaTrackerPluginLogView} from "./ui/pluginLogView";
 import {DesktopFaviconCache} from "./infra/cache/faviconCache";
 import {PluginLogger} from "./infra/logging/pluginLogger";
-import {listTrackedMedia, refreshTrackedMedia} from "./flows/media";
+import {refreshTrackedMedia} from "./flows/media";
 import {UpdateLogRun} from "./types";
+import {listMediaItems} from "./domain/media/readModel";
 import {
 	didMediaQuerySettingsChange,
 	getMediaQuerySettingsSnapshot,
@@ -42,6 +43,7 @@ export default class MediaTrackerPlugin extends Plugin {
 	private startupUpdateService!: StartupLibraryUpdateService;
 	private pendingRunCheckpointStore!: PendingUpdateRunCheckpointStore;
 	private viewRefreshManager!: ViewRefreshManager;
+	private settingsUpdateQueue: Promise<void> = Promise.resolve();
 
 	async onload() {
 		await this.loadSettings();
@@ -73,7 +75,7 @@ export default class MediaTrackerPlugin extends Plugin {
 		this.startupUpdateService = new StartupLibraryUpdateService({
 			getSettings: () => this.settings,
 			saveSettingsData: () => this.saveData(this.settings),
-			listTrackedItems: () => listTrackedMedia(this.app, this.settings),
+			listTrackedItems: () => listMediaItems(this.app, this.settings),
 			refreshTrackedItems: (items, onRunUpdate) => refreshTrackedMedia(this.app, this.settings, items, undefined, onRunUpdate),
 			setActiveUpdateRun: (run) => this.setActiveUpdateRun(run),
 			recordCompletedUpdateRun: (run) => this.recordCompletedUpdateRun(run),
@@ -117,20 +119,26 @@ export default class MediaTrackerPlugin extends Plugin {
 	}
 
 	async updateSettings(mutator: (settings: MediaTrackerSettings) => void) {
-		const previousQuerySettings = getMediaQuerySettingsSnapshot(this.settings);
-		mutator(this.settings);
-		this.settings.mediaFolder = normalizeMediaFolder(this.settings.mediaFolder);
-		await this.saveData(this.settings);
-		this.logger?.updateOptions({
-			enabled: this.settings.loggingEnabled,
-			level: this.settings.loggingLevel,
-			maxLogFiles: this.settings.loggingMaxFiles,
+		const run = this.settingsUpdateQueue.then(async () => {
+			const previousQuerySettings = getMediaQuerySettingsSnapshot(this.settings);
+			mutator(this.settings);
+			this.settings.mediaFolder = normalizeMediaFolder(this.settings.mediaFolder);
+			await this.saveData(this.settings);
+			this.logger?.updateOptions({
+				enabled: this.settings.loggingEnabled,
+				level: this.settings.loggingLevel,
+				maxLogFiles: this.settings.loggingMaxFiles,
+			});
+			const nextQuerySettings = getMediaQuerySettingsSnapshot(this.settings);
+			if (didMediaQuerySettingsChange(previousQuerySettings, nextQuerySettings)) {
+				this.viewRefreshManager.invalidateTrackerItemCaches();
+			}
+			this.viewRefreshManager.scheduleRefresh();
 		});
-		const nextQuerySettings = getMediaQuerySettingsSnapshot(this.settings);
-		if (didMediaQuerySettingsChange(previousQuerySettings, nextQuerySettings)) {
-			this.viewRefreshManager.invalidateTrackerItemCaches();
-		}
-		this.viewRefreshManager.scheduleRefresh();
+		this.settingsUpdateQueue = run.catch(() => {
+			// Keep queue chain alive even if one settings update fails.
+		});
+		return run;
 	}
 
 	scheduleRefresh() {

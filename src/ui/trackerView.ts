@@ -4,10 +4,9 @@ import {MEDIA_STATUS_LABELS} from "./mediaStatusLabels";
 import {MEDIA_TYPE_LABELS} from "./mediaTypeConfig";
 import {NewMediaModal} from "./newMediaModal";
 import {
-	listTrackedMedia,
-	listTrackedMediaFiles,
 	normalizeAllMediaNoteFrontmatter,
 } from "../flows/media";
+import {listMediaItems} from "../domain/media/readModel";
 import {renderCard, renderTableHeader, renderTableRow, type SortDirection, type SortKey} from "./trackerRenderer";
 import {openMediaUpdateLog} from "./updateLogView";
 import {TrackerGitService, TrackerIconService} from "./trackerServices";
@@ -125,7 +124,7 @@ export class MediaTrackerView extends ItemView {
 
 	private getTrackedItems(): MediaItem[] {
 		if (this.trackedItemsCacheDirty) {
-			this.trackedItemsCache = listTrackedMedia(this.app, this.plugin.settings);
+			this.trackedItemsCache = listMediaItems(this.app, this.plugin.settings);
 			this.trackedItemsCacheDirty = false;
 		}
 		return this.trackedItemsCache;
@@ -211,7 +210,7 @@ export class MediaTrackerView extends ItemView {
 			if (!confirmed) {
 				return;
 			}
-			const files = listTrackedMediaFiles(this.app, this.plugin.settings);
+			const files = this.getTrackedItems().map((item) => item.file);
 			this.runTask(async () => {
 				const changed = await normalizeAllMediaNoteFrontmatter(this.app, files);
 				this.plugin.logger.info("ui.tracker", "cleanup_all_counts", "Frontmatter normalization results.", {

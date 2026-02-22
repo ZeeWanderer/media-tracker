@@ -2,7 +2,6 @@ import {MediaItem, UpdateLogRun} from "../types";
 import {MediaTrackerSettings} from "./pluginSettingsModel";
 
 export type RunLibraryRefresh = (
-	settings: Readonly<MediaTrackerSettings>,
 	items: MediaItem[],
 	onProgress?: (current: number, total: number) => void,
 	onRunUpdate?: (run: UpdateLogRun) => void,
@@ -35,7 +34,6 @@ export async function executeLibraryRefresh(
 	const settings = deps.getSettings();
 	try {
 		const run = await deps.runRefresh(
-			settings,
 			options.items,
 			options.onProgress,
 			(activeRun) => deps.setActiveUpdateRun(activeRun),
