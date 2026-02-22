@@ -1,7 +1,7 @@
 import {App, DataAdapter} from "obsidian";
 import {ensureAdapterDirectory} from "../storage/adapterPath";
 import {getPluginLogsDirectory} from "../storage/pluginPaths";
-import type {PluginLogLevel} from "../../types";
+import type {PluginLogLevel} from "../../core/updateTypes";
 
 export type {PluginLogLevel};
 
@@ -21,7 +21,6 @@ export type PluginLoggerOptions = {
 	maxRecentEntries?: number;
 };
 
-const LOG_DIR = "logs";
 const LOG_FILE_EXT = ".ndjson";
 const DEFAULT_MAX_LOG_FILES = 14;
 const DEFAULT_MAX_RECENT_ENTRIES = 1000;

@@ -1,10 +1,11 @@
 import {App} from "obsidian";
 import {MediaTrackerSettings} from "../../core/pluginSettingsModel";
-import {MediaItem, UpdateLogAttempt, UpdateLogEntry, UpdateLogRun, UpdateProvider} from "../../types";
 import {ANILIST_TYPES, TMDB_TYPES} from "../../domain/media/config";
 import {getImdbIdFromLinks} from "../../domain/media/links";
 import {AniListRefreshResult, refreshAniListLatest} from "./providers/anilistProviderFlow";
 import {refreshTmdbSeriesLatest, TmdbRefreshResult} from "./providers/tmdbProviderFlow";
+import type {MediaItem} from "../../domain/media/models";
+import type {UpdateLogAttempt, UpdateLogEntry, UpdateLogRun, UpdateProvider} from "../../core/updateTypes";
 
 type RefreshItemResult = {
 	provider: UpdateProvider;

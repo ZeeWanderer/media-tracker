@@ -11,9 +11,6 @@ export const MEDIA_SCHEMA_VERSION_KEY = "mediaTrackerVersion";
 export const MEDIA_TYPE_VALUES: MediaType[] = [...MEDIA_TYPES];
 export const MEDIA_STATUS_VALUES: MediaStatus[] = [...MEDIA_STATUSES];
 
-export const MEDIA_TYPE_SET = new Set<MediaType>(MEDIA_TYPE_VALUES);
-export const MEDIA_STATUS_SET = new Set<MediaStatus>(MEDIA_STATUS_VALUES);
-
 export type MediaSchemaVersion = typeof CURRENT_MEDIA_SCHEMA_VERSION;
 
 export interface MediaSnapshotV3 {

@@ -1,22 +1,16 @@
 import {App, TFile} from "obsidian";
 import {MediaTrackerSettings} from "../../../core/pluginSettingsModel";
-import {MediaItem} from "../../../types";
 import {fetchTmdbLatestEpisode, findTmdbTvIdByImdb} from "../../../infra/api/tmdbApi";
 import {updateMediaSnapshot} from "../../../domain/media";
 import {extractImdbId, getImdbIdFromLinks} from "../../../domain/media/links";
+import type {MediaItem} from "../../../domain/media/models";
+import {providerDelay, sameNumberRecord} from "./providerFlowUtils";
 
 export type TmdbRefreshResult = {
 	provider: "tmdb";
 	status: "updated" | "unchanged" | "failed";
 	message: string;
 };
-
-function delay(ms: number): Promise<void> {
-	if (ms <= 0) {
-		return Promise.resolve();
-	}
-	return new Promise((resolve) => window.setTimeout(resolve, ms));
-}
 
 function sanitizeSeasonEpisodes(map: Record<string, number>): Record<string, number> | undefined {
 	const entries = Object.entries(map)
@@ -25,18 +19,6 @@ function sanitizeSeasonEpisodes(map: Record<string, number>): Record<string, num
 		return undefined;
 	}
 	return Object.fromEntries(entries.map(([key, val]) => [String(Number(key)), Number(val)]));
-}
-
-function sameNumberRecord(a: Record<string, number> | undefined, b: Record<string, number> | undefined): boolean {
-	const leftEntries = Object.entries(a ?? {}).sort((x, y) => Number(x[0]) - Number(y[0]));
-	const rightEntries = Object.entries(b ?? {}).sort((x, y) => Number(x[0]) - Number(y[0]));
-	if (leftEntries.length !== rightEntries.length) {
-		return false;
-	}
-	return leftEntries.every(([leftKey, leftVal], index) => {
-		const [rightKey, rightVal] = rightEntries[index] ?? [];
-		return leftKey === rightKey && leftVal === rightVal;
-	});
 }
 
 async function updateSeriesFrontmatter(
@@ -176,7 +158,7 @@ export async function refreshTmdbSeriesLatest(
 			name: nextName,
 		});
 
-		await delay(minDelayMs);
+			await providerDelay(minDelayMs);
 		if (nextSeason && nextEpisode) {
 			return {
 				provider: "tmdb",

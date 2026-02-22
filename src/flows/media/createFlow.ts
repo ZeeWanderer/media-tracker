@@ -1,11 +1,12 @@
 import {App, TFile, TFolder} from "obsidian";
 import {MediaTrackerSettings} from "../../core/pluginSettingsModel";
-import {MediaItem, MediaType, NewMediaDraft} from "../../types";
 import {ANILIST_TYPES, IMDB_TYPES} from "../../domain/media/config";
 import {sanitizeMediaFileName, sanitizeNewMediaDraft} from "../../domain/media/draft";
-import {extractAnilistId, extractImdbId, getAnilistIdFromLinks, getImdbIdFromLinks, setLinks} from "../../domain/media/links";
-import {updateMediaFrontmatter} from "../../domain/media/frontmatter";
+import {extractAnilistId, extractImdbId, getAnilistIdFromLinks, getImdbIdFromLinks} from "../../domain/media/links";
+import {updateMediaSnapshot} from "../../domain/media/frontmatter";
 import {listMediaItems} from "../../domain/media/readModel";
+import type {MediaType} from "../../domain/media/config";
+import type {MediaItem, NewMediaDraft} from "../../domain/media/models";
 
 async function ensureFolder(app: App, folder: string) {
 	const segments = folder.split("/").filter((segment) => segment.length);
@@ -99,10 +100,6 @@ function findConflictingIdItem(
 	return null;
 }
 
-export function sanitizeMediaDraft(draft: NewMediaDraft): NewMediaDraft {
-	return sanitizeNewMediaDraft(draft);
-}
-
 export type CreateMediaNoteResult =
 	| {
 		status: "created";
@@ -144,36 +141,34 @@ async function applyDraftFrontmatter(
 	const created = await app.vault.create(filePath, "---\n---\n");
 	const imdbId = resolveDraftImdbId(draft);
 	const anilistId = resolveDraftAnilistId(draft);
-	await updateMediaFrontmatter(app, created, (frontmatter) => {
-		frontmatter.type = draft.type;
-		frontmatter.status = draft.status;
-		frontmatter.title = draft.title;
-
-		if (draft.author) {
-			frontmatter.author = draft.author;
-		}
-		if (draft.progress) {
-			frontmatter.progress = draft.progress;
-		}
+	await updateMediaSnapshot(app, created, (snapshot) => {
+		snapshot.type = draft.type;
+		snapshot.status = draft.status;
+		snapshot.title = draft.title;
+		snapshot.author = draft.author || undefined;
+		snapshot.progress = draft.progress || undefined;
+		snapshot.progressLabel = undefined;
+		snapshot.progressUnit = undefined;
+		snapshot.links = [...(draft.links ?? [])];
+		snapshot.imdbId = imdbId;
 
 		const season = parseOptionalInteger(draft.season);
 		const episode = parseOptionalInteger(draft.episode);
 		if (season !== undefined && episode !== undefined) {
-			frontmatter.season = season;
-			frontmatter.episode = episode;
+			snapshot.season = season;
+			snapshot.episode = episode;
+		} else {
+			snapshot.season = undefined;
+			snapshot.episode = undefined;
 		}
 
-		const year = parseOptionalInteger(draft.year);
-		if (year !== undefined) {
-			frontmatter.year = year;
-		}
-
-		setLinks(frontmatter, draft.links ?? []);
-		if (imdbId) {
-			frontmatter.imdbId = imdbId;
-		}
+		snapshot.year = parseOptionalInteger(draft.year);
 		if (anilistId !== undefined) {
-			frontmatter.anilistId = anilistId;
+			snapshot.anilistId = anilistId;
+			snapshot.anilistIds = [anilistId];
+		} else {
+			snapshot.anilistId = undefined;
+			snapshot.anilistIds = undefined;
 		}
 	});
 	return created;

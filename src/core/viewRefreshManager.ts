@@ -46,7 +46,7 @@ export class ViewRefreshManager {
 		if (!this.shouldRefreshForMetadataFile(file)) {
 			return;
 		}
-		this.invalidateTrackerItemCaches();
+		this.deps.invalidateTrackerItemCaches();
 		this.scheduleTrackerRefresh();
 	}
 
@@ -54,14 +54,8 @@ export class ViewRefreshManager {
 		if (!this.shouldRefreshForVaultMutation(file, oldPath)) {
 			return;
 		}
-		this.invalidateTrackerItemCaches();
+		this.deps.invalidateTrackerItemCaches();
 		this.scheduleTrackerRefresh();
-	}
-
-	refreshViews() {
-		this.deps.refreshTrackerViews();
-		this.deps.refreshUpdateLogViews();
-		this.deps.refreshPluginLogViews();
 	}
 
 	private shouldSkipScheduledRefresh(): boolean {
@@ -106,22 +100,6 @@ export class ViewRefreshManager {
 		if (shouldRefreshPluginLog) {
 			this.deps.refreshPluginLogViews();
 		}
-	}
-
-	invalidateTrackerItemCaches() {
-		this.deps.invalidateTrackerItemCaches();
-	}
-
-	refreshTrackerViews() {
-		this.deps.refreshTrackerViews();
-	}
-
-	refreshUpdateLogViews() {
-		this.deps.refreshUpdateLogViews();
-	}
-
-	refreshPluginLogViews() {
-		this.deps.refreshPluginLogViews();
 	}
 
 	private shouldRefreshForMetadataFile(file: TFile): boolean {

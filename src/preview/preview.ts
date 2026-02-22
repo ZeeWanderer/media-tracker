@@ -1,8 +1,8 @@
 import {getKnownIconAsset} from "../domain/media/links";
 import {MEDIA_STATUS_LABELS} from "../ui/mediaStatusLabels";
-import {MEDIA_TYPE_LABELS} from "../ui/mediaTypeConfig";
-import {NEW_MEDIA_BASE_FIELDS, NEW_MEDIA_TYPE_FIELDS} from "../ui/newMediaForm";
-import {renderCard, renderTableHeader, renderTableRow, type MediaItemLike, type RenderHandlers, type SortDirection, type SortKey} from "../ui/trackerRenderer";
+import {MEDIA_TYPE_FIELDS, MEDIA_TYPE_LABELS, NEW_MEDIA_BASE_FIELDS} from "../ui/mediaTypeConfig";
+import {renderCard, renderTableHeader, renderTableRow} from "../ui/trackerRenderer";
+import type {MediaItemLike, RenderHandlers, SortDirection, SortKey} from "../ui/trackerRenderTypes";
 
 type PreviewPayload = {
 	items?: MediaItemLike[];
@@ -74,7 +74,7 @@ if (newNoteContainer) {
 	const section = document.createElement("h3");
 	section.textContent = "Series details";
 	modal.appendChild(section);
-	for (const field of NEW_MEDIA_TYPE_FIELDS.series) {
+	for (const field of MEDIA_TYPE_FIELDS.series) {
 		modal.appendChild(createSettingText(field.label, field.placeholder ?? "", field.description));
 	}
 

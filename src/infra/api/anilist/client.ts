@@ -1,4 +1,4 @@
-import {httpRequest} from "../../network/httpClient";
+import {requestUrl} from "obsidian";
 import type {AniListMedia} from "./types";
 
 const ANILIST_URL = "https://graphql.anilist.co";
@@ -207,11 +207,11 @@ export async function fetchAniListMedia(
 		await waitForAniListRateWindow();
 		const baseDelayMs = getAniListBaseDelayMs(requestedMinDelayMs);
 		try {
-			const response = await httpRequest({
-				url: ANILIST_URL,
-				method: "POST",
-				contentType: "application/json",
-				body,
+				const response = await requestUrl({
+					url: ANILIST_URL,
+					method: "POST",
+					contentType: "application/json",
+					body,
 				throw: false,
 			});
 			const parsed = response.json as AniListResponse;
@@ -248,4 +248,3 @@ export async function fetchAniListMedia(
 	}
 	return null;
 }
-

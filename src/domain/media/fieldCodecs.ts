@@ -117,7 +117,8 @@ export function serializeFieldValueByKind(kind: MediaFrontmatterFieldKind, value
 			if (!parsed || !Object.keys(parsed).length) {
 				return undefined;
 			}
-			return JSON.stringify(parsed);
+			// Keep records as native frontmatter maps to avoid extra encode/decode churn.
+			return parsed;
 		}
 		default:
 			return undefined;

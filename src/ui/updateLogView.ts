@@ -1,7 +1,7 @@
 import {App, ItemView, WorkspaceLeaf} from "obsidian";
-import {UpdateLogEntry, UpdateLogRun} from "../types";
 import {MEDIA_TRACKER_UPDATE_LOG_VIEW} from "./viewIds";
 import type {MediaTrackerSettings} from "../core/pluginSettingsModel";
+import type {UpdateLogEntry, UpdateLogRun} from "../core/updateTypes";
 
 type UpdateLogViewDeps = {
 	app: App;

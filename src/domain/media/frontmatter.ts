@@ -1,14 +1,11 @@
 import {App, TFile} from "obsidian";
 import {
-	CURRENT_MEDIA_SCHEMA_VERSION,
 	type LatestMediaSnapshot,
-	type MediaSnapshotV3,
 } from "./schema";
 import {
 	migrateMediaSnapshotToLatest,
 	readMediaSchemaVersion,
 	type MediaMigrationResult,
-	type MediaSnapshotMigrationResult,
 } from "./migrations";
 import {
 	decodeLatestMediaSnapshot,
@@ -157,21 +154,3 @@ export async function normalizeMediaFilesFrontmatter(app: App, files: TFile[]): 
 	}
 	return changed;
 }
-
-export {
-	CURRENT_MEDIA_SCHEMA_VERSION,
-	decodeLatestMediaSnapshot,
-	encodeLatestMediaSnapshot,
-	migrateMediaSnapshotToLatest,
-	readMediaSchemaVersion,
-	sanitizeLatestMediaSnapshot,
-	validateLatestMediaSnapshot,
-};
-
-export type {
-	LatestMediaSnapshot,
-	MediaMigrationResult,
-	MediaSnapshotMigrationResult,
-	MediaSnapshotV3,
-	MediaValidationIssue,
-};

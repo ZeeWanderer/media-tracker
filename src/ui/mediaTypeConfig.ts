@@ -1,4 +1,21 @@
-import {MediaType, NewMediaFieldConfig} from "../types";
+import type {MediaType} from "../domain/media/config";
+import type {NewMediaDraft} from "../domain/media/models";
+
+export type NewMediaFieldConfig = {
+	key: keyof NewMediaDraft;
+	label: string;
+	placeholder?: string;
+	description?: string;
+	inputType?: "text" | "number";
+};
+
+export const NEW_MEDIA_BASE_FIELDS: NewMediaFieldConfig[] = [
+	{
+		key: "title",
+		label: "Title",
+		placeholder: "Title",
+	},
+];
 
 const NOVEL_FIELDS: NewMediaFieldConfig[] = [
 	{

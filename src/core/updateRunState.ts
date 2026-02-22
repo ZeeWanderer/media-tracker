@@ -1,7 +1,7 @@
 import {MediaTrackerSettings} from "./pluginSettingsModel";
-import {UpdateLogRun} from "../types";
 import {PluginLogger} from "../infra/logging/pluginLogger";
 import {isValidUpdateLogRun} from "./updateLogRunValidation";
+import type {UpdateLogRun} from "./updateTypes";
 
 type UpdateRunStateDeps = {
 	settings: MediaTrackerSettings;

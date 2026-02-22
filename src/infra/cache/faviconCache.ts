@@ -1,5 +1,4 @@
-import {App, DataAdapter} from "obsidian";
-import {httpRequest} from "../network/httpClient";
+import {App, DataAdapter, requestUrl} from "obsidian";
 import {getFaviconCacheKey as getDomainFaviconCacheKey} from "../../domain/media/links";
 import {ensureAdapterDirectory} from "../storage/adapterPath";
 import {getPluginCacheDirectory} from "../storage/pluginPaths";
@@ -352,7 +351,7 @@ export class DesktopFaviconCache {
 	private async fetchAndStoreFavicon(origin: string): Promise<string | null> {
 		const faviconUrl = `${origin}/favicon.ico`;
 		try {
-			const response = await httpRequest({url: faviconUrl});
+				const response = await requestUrl({url: faviconUrl});
 			if (typeof response.status === "number" && response.status >= 400) {
 				return null;
 			}

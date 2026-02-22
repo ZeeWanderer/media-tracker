@@ -1,4 +1,4 @@
-import {httpRequestJson} from "../network/httpClient";
+import {requestUrl} from "obsidian";
 
 const TMDB_BASE = "https://api.themoviedb.org/3";
 
@@ -24,7 +24,8 @@ type TmdbTvResponse = {
 async function tmdbRequest<T>(path: string, apiKey: string): Promise<T> {
 	const url = `${TMDB_BASE}${path}${path.includes("?") ? "&" : "?"}api_key=${apiKey}`;
 	try {
-		return await httpRequestJson<T>({url});
+		const response = await requestUrl({url});
+		return response.json as T;
 	} catch {
 		throw new Error(`TMDb request failed for ${path}`);
 	}

@@ -1,5 +1,6 @@
-import {MediaItem, UpdateLogRun} from "../types";
+import type {MediaItem} from "../domain/media/models";
 import {MediaTrackerSettings} from "./pluginSettingsModel";
+import type {UpdateLogRun} from "./updateTypes";
 
 export type RunLibraryRefresh = (
 	items: MediaItem[],

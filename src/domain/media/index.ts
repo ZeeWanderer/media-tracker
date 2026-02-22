@@ -2,9 +2,7 @@ export {
 	ANILIST_TYPES,
 	IMDB_TYPES,
 	MEDIA_STATUSES,
-	MEDIA_STATUSES_SET,
 	MEDIA_TYPES,
-	MEDIA_TYPES_SET,
 	NOVEL_PROGRESS_TYPES,
 	SEASON_EPISODE_TYPES,
 	TMDB_TYPES,
@@ -17,12 +15,12 @@ export {
 	normalizeMediaFilesFrontmatter,
 	updateMediaFrontmatter,
 	updateMediaSnapshot,
-	type LatestMediaSnapshot,
 	type MediaFrontmatterProcessResult,
 	type MediaFrontmatterUpdater,
 	type MediaSnapshotDecodeResult,
 	type MediaSnapshotUpdater,
 } from "./frontmatter";
+export type {LatestMediaSnapshot} from "./schema";
 export {
 	sanitizeMediaFileName,
 	sanitizeNewMediaDraft,

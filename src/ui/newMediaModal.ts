@@ -1,14 +1,14 @@
 import {App, Modal, Notice, Setting} from "obsidian";
-import {MediaStatus, MediaType, NewMediaDraft, NewMediaFieldConfig} from "../types";
 import {MEDIA_STATUS_LABELS} from "./mediaStatusLabels";
-import {MEDIA_TYPE_LABELS} from "./mediaTypeConfig";
+import {MEDIA_TYPE_FIELDS, MEDIA_TYPE_LABELS, NEW_MEDIA_BASE_FIELDS, type NewMediaFieldConfig} from "./mediaTypeConfig";
 import {ANILIST_TYPES, IMDB_TYPES, MEDIA_STATUSES, MEDIA_TYPES} from "../domain/media/config";
 import {createMediaNoteFromDraft, updateMediaDraftType} from "../flows/media";
-import {NEW_MEDIA_BASE_FIELDS, NEW_MEDIA_TYPE_FIELDS} from "./newMediaForm";
 import {extractImdbId} from "../domain/media/links";
 import {runLoggedTask, type TaskLogContext} from "./taskRunner";
 import type {MediaTrackerSettings} from "../core/pluginSettingsModel";
 import type {PluginLogger} from "../infra/logging/pluginLogger";
+import type {MediaStatus, MediaType} from "../domain/media/config";
+import type {NewMediaDraft} from "../domain/media/models";
 
 type NewMediaModalPluginDeps = {
 	app: App;
@@ -146,7 +146,7 @@ export class NewMediaModal extends Modal {
 			});
 
 		contentEl.createEl("h3", {text: `${MEDIA_TYPE_LABELS[this.draft.type]} details`});
-		this.renderFields(contentEl, NEW_MEDIA_TYPE_FIELDS[this.draft.type]);
+		this.renderFields(contentEl, MEDIA_TYPE_FIELDS[this.draft.type]);
 
 		this.renderLinks(contentEl);
 

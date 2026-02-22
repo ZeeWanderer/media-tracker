@@ -1,8 +1,8 @@
 import {App} from "obsidian";
-import {UpdateLogRun} from "../types";
 import {ensureAdapterDirectory} from "../infra/storage/adapterPath";
 import {getPluginCachePath} from "../infra/storage/pluginPaths";
 import {isValidUpdateLogRun} from "./updateLogRunValidation";
+import type {UpdateLogRun} from "./updateTypes";
 
 type PendingUpdateRunCheckpointStoreDeps = {
 	app: App;

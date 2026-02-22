@@ -7,8 +7,8 @@ import {MediaTrackerPluginLogView} from "./ui/pluginLogView";
 import {DesktopFaviconCache} from "./infra/cache/faviconCache";
 import {PluginLogger} from "./infra/logging/pluginLogger";
 import {refreshTrackedMedia} from "./flows/media";
-import {UpdateLogRun} from "./types";
 import {listMediaItems} from "./domain/media/readModel";
+import {UpdateLogRun} from "./core/updateTypes";
 import {
 	didMediaQuerySettingsChange,
 	getMediaQuerySettingsSnapshot,
@@ -64,26 +64,26 @@ export default class MediaTrackerPlugin extends Plugin {
 			refreshUpdateLogViews: () => this.refreshViewsByType(MEDIA_TRACKER_UPDATE_LOG_VIEW),
 			refreshPluginLogViews: () => this.refreshViewsByType(MEDIA_TRACKER_PLUGIN_LOG_VIEW),
 		});
-		this.updateRunState = new UpdateRunState({
-			settings: this.settings,
-			saveSettingsData: () => this.saveData(this.settings),
-			refreshUpdateLogViews: () => this.viewRefreshManager.refreshUpdateLogViews(),
-			loadPendingRunCheckpoint: () => this.pendingRunCheckpointStore.load(),
-			savePendingRunCheckpoint: (run) => this.pendingRunCheckpointStore.save(run),
-			logger: this.logger,
-		});
+			this.updateRunState = new UpdateRunState({
+				settings: this.settings,
+				saveSettingsData: () => this.saveData(this.settings),
+				refreshUpdateLogViews: () => this.refreshViewsByType(MEDIA_TRACKER_UPDATE_LOG_VIEW),
+				loadPendingRunCheckpoint: () => this.pendingRunCheckpointStore.load(),
+				savePendingRunCheckpoint: (run) => this.pendingRunCheckpointStore.save(run),
+				logger: this.logger,
+			});
 		this.startupUpdateService = new StartupLibraryUpdateService({
 			getSettings: () => this.settings,
 			saveSettingsData: () => this.saveData(this.settings),
 			listTrackedItems: () => listMediaItems(this.app, this.settings),
-			refreshTrackedItems: (items, onRunUpdate) => refreshTrackedMedia(this.app, this.settings, items, undefined, onRunUpdate),
-			setActiveUpdateRun: (run) => this.setActiveUpdateRun(run),
-			recordCompletedUpdateRun: (run) => this.recordCompletedUpdateRun(run),
-			invalidateTrackerItemCaches: () => this.viewRefreshManager.invalidateTrackerItemCaches(),
-			scheduleRefresh: () => this.viewRefreshManager.scheduleRefresh(),
-			openUpdateLog: () => openMediaUpdateLog(this),
-			logger: this.logger,
-		});
+				refreshTrackedItems: (items, onRunUpdate) => refreshTrackedMedia(this.app, this.settings, items, undefined, onRunUpdate),
+				setActiveUpdateRun: (run) => this.setActiveUpdateRun(run),
+				recordCompletedUpdateRun: (run) => this.recordCompletedUpdateRun(run),
+				invalidateTrackerItemCaches: () => this.invalidateTrackerItemCaches(),
+				scheduleRefresh: () => this.viewRefreshManager.scheduleRefresh(),
+				openUpdateLog: () => openMediaUpdateLog(this),
+				logger: this.logger,
+			});
 		this.logger.info("plugin", "loaded", "Media Tracker loaded.");
 		await this.updateRunState.restorePendingUpdateRunIfAny();
 
@@ -124,25 +124,21 @@ export default class MediaTrackerPlugin extends Plugin {
 			mutator(this.settings);
 			this.settings.mediaFolder = normalizeMediaFolder(this.settings.mediaFolder);
 			await this.saveData(this.settings);
-			this.logger?.updateOptions({
-				enabled: this.settings.loggingEnabled,
-				level: this.settings.loggingLevel,
-				maxLogFiles: this.settings.loggingMaxFiles,
+				this.logger?.updateOptions({
+					enabled: this.settings.loggingEnabled,
+					level: this.settings.loggingLevel,
+					maxLogFiles: this.settings.loggingMaxFiles,
+				});
+				const nextQuerySettings = getMediaQuerySettingsSnapshot(this.settings);
+				if (didMediaQuerySettingsChange(previousQuerySettings, nextQuerySettings)) {
+					this.invalidateTrackerItemCaches();
+				}
+				this.viewRefreshManager.scheduleRefresh();
 			});
-			const nextQuerySettings = getMediaQuerySettingsSnapshot(this.settings);
-			if (didMediaQuerySettingsChange(previousQuerySettings, nextQuerySettings)) {
-				this.viewRefreshManager.invalidateTrackerItemCaches();
-			}
-			this.viewRefreshManager.scheduleRefresh();
-		});
 		this.settingsUpdateQueue = run.catch(() => {
 			// Keep queue chain alive even if one settings update fails.
 		});
 		return run;
-	}
-
-	scheduleRefresh() {
-		this.viewRefreshManager.scheduleRefresh();
 	}
 
 	suppressNextViewRefresh() {

@@ -1,9 +1,10 @@
-import {MediaItem, MediaStatus, MediaType} from "../types";
 import {MEDIA_STATUSES, MEDIA_TYPES} from "../domain/media/config";
 import {getTitleSortKey} from "../domain/media/readModel";
 import {MEDIA_STATUS_LABELS} from "./mediaStatusLabels";
 import {MEDIA_TYPE_LABELS} from "./mediaTypeConfig";
-import type {SortDirection, SortKey} from "./trackerRenderer";
+import type {SortDirection, SortKey} from "./trackerRenderTypes";
+import type {MediaItem} from "../domain/media/models";
+import type {MediaStatus, MediaType} from "../domain/media/config";
 
 export type DisplayMode = "cards" | "details";
 export type TypeFilter = MediaType | "all";

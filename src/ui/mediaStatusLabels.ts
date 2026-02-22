@@ -1,4 +1,4 @@
-import {MediaStatus} from "../types";
+import type {MediaStatus} from "../domain/media/config";
 
 export const MEDIA_STATUS_LABELS: Record<MediaStatus, string> = {
 	planned: "Planned",

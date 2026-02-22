@@ -1,5 +1,4 @@
 import {App, Notice} from "obsidian";
-import type {MediaItem} from "../types";
 import {
 	addLinkToMediaNote,
 	deleteMediaNote,
@@ -12,11 +11,13 @@ import {applyProgressInputToFields, buildProgressDisplay} from "../domain/media/
 import {LinkModal} from "./linkModal";
 import {showTrackerCardMenu} from "./trackerCardMenu";
 import {openInlineProgressEditor} from "./inlineProgressEditor";
-import {renderProgressMeta, type RenderHandlers, type SortKey} from "./trackerRenderer";
+import {type RenderHandlers, type SortKey} from "./trackerRenderTypes";
+import {renderProgressMeta} from "./trackerProgressRenderer";
 import type {DisplayMode} from "./trackerFiltering";
 import type {TaskLogContext} from "./taskRunner";
 import type {MediaTrackerSettings} from "../core/pluginSettingsModel";
 import type {PluginLogger} from "../infra/logging/pluginLogger";
+import type {MediaItem} from "../domain/media/models";
 
 type TrackerInteractionDeps = {
 	app: App;
@@ -36,50 +37,47 @@ export class TrackerInteractionController {
 	constructor(private readonly deps: TrackerInteractionDeps) {}
 
 	getRenderHandlers(): RenderHandlers {
-		return {
-			onOpenNote: (item) => {
-				const fullItem = item as MediaItem;
-				this.deps.runTask(async () => {
-					await this.deps.app.workspace.getLeaf("tab").openFile(fullItem.file);
-				}, `Failed to open "${fullItem.title}".`);
-			},
+			return {
+				onOpenNote: (item) => {
+					void this.deps.runTask(async () => {
+						await this.deps.app.workspace.getLeaf("tab").openFile(item.file);
+					}, `Failed to open "${item.title}".`);
+				},
 			onContextMenu: (event, item) => {
 				event.preventDefault();
-				this.openCardMenu(event, item as MediaItem);
+				this.openCardMenu(event, item);
 			},
-			onStatusChange: (item, status) => {
-				const fullItem = item as MediaItem;
-				const previousStatus = fullItem.status;
-				this.deps.runTask(async () => {
-					await updateMediaNoteStatus(this.deps.app, fullItem.file, status);
-				}, `Failed to update status for "${fullItem.title}".`, {
+				onStatusChange: (item, status) => {
+					const previousStatus = item.status;
+					void this.deps.runTask(async () => {
+						await updateMediaNoteStatus(this.deps.app, item.file, status);
+					}, `Failed to update status for "${item.title}".`, {
 					event: "status_update",
 					logStart: true,
-					successMessage: `Updated status for "${fullItem.title}".`,
+					successMessage: `Updated status for "${item.title}".`,
 					meta: {
-						...this.getItemLogMeta(fullItem),
+						...this.getItemLogMeta(item),
 						fromStatus: previousStatus,
 						toStatus: status,
 					},
 				});
 			},
 			onProgressEdit: (target, item) => {
-				this.openProgressEditor(target, item as MediaItem);
+				this.openProgressEditor(target, item);
 			},
-			onProgressAdvance: (target, item, nextValue) => {
-				const fullItem = item as MediaItem;
-				this.deps.runTask(async () => {
-					this.deps.suppressNextViewRefresh();
-					await updateMediaNoteProgress(this.deps.app, fullItem.file, fullItem.type, nextValue);
-					const optimistic = this.applyProgressValueToItem(fullItem, nextValue);
-					this.refreshProgressControl(target, fullItem.file.path, optimistic);
-				}, `Failed to update progress for "${fullItem.title}".`, {
+				onProgressAdvance: (target, item, nextValue) => {
+					void this.deps.runTask(async () => {
+						this.deps.suppressNextViewRefresh();
+						await updateMediaNoteProgress(this.deps.app, item.file, item.type, nextValue);
+						const optimistic = this.applyProgressValueToItem(item, nextValue);
+					this.refreshProgressControl(target, item.file.path, optimistic);
+				}, `Failed to update progress for "${item.title}".`, {
 					event: "progress_advance",
 					logStart: true,
-					successMessage: `Updated progress for "${fullItem.title}".`,
+					successMessage: `Updated progress for "${item.title}".`,
 					meta: {
-						...this.getItemLogMeta(fullItem),
-						previousProgress: fullItem.progress ?? "",
+						...this.getItemLogMeta(item),
+						previousProgress: item.progress ?? "",
 						nextProgress: nextValue,
 					},
 				});
@@ -103,14 +101,14 @@ export class TrackerInteractionController {
 	}
 
 	private openProgressEditor(target: HTMLElement, item: MediaItem) {
-		openInlineProgressEditor({
-			target,
-			value: item.progress ?? "",
-			onCommit: (nextProgress, input) => {
-				this.deps.runTask(async () => {
-					this.deps.suppressNextViewRefresh();
-					await updateMediaNoteProgress(this.deps.app, item.file, item.type, nextProgress);
-					const optimistic = this.applyProgressValueToItem(item, nextProgress);
+			openInlineProgressEditor({
+				target,
+				value: item.progress ?? "",
+				onCommit: (nextProgress, input) => {
+					void this.deps.runTask(async () => {
+						this.deps.suppressNextViewRefresh();
+						await updateMediaNoteProgress(this.deps.app, item.file, item.type, nextProgress);
+						const optimistic = this.applyProgressValueToItem(item, nextProgress);
 					this.refreshProgressControl(input, item.file.path, optimistic);
 				}, `Failed to update progress for "${item.title}".`, {
 					event: "progress_edit",
@@ -182,9 +180,9 @@ export class TrackerInteractionController {
 			onOpenNote: () => {
 				void this.deps.app.workspace.getLeaf("tab").openFile(item.file);
 			},
-			onRefreshLatest: () => {
-				this.deps.runTask(async () => {
-					const result = await refreshTrackedMediaLatest(this.deps.app, this.deps.getSettings(), item);
+				onRefreshLatest: () => {
+					void this.deps.runTask(async () => {
+						const result = await refreshTrackedMediaLatest(this.deps.app, this.deps.getSettings(), item);
 					const meta = {
 						...this.getItemLogMeta(item),
 						provider: result.provider,
@@ -209,11 +207,11 @@ export class TrackerInteractionController {
 			},
 			onAddLink: () => {
 				new LinkModal(this.deps.app, {
-					title: "Add link",
-					onSubmit: (url) => {
-						this.deps.runTask(async () => {
-							await addLinkToMediaNote(this.deps.app, item.file, url);
-						}, `Failed to add link for "${item.title}".`, {
+						title: "Add link",
+						onSubmit: (url) => {
+							void this.deps.runTask(async () => {
+								await addLinkToMediaNote(this.deps.app, item.file, url);
+							}, `Failed to add link for "${item.title}".`, {
 							event: "add_link",
 							logStart: true,
 							successMessage: `Added link for "${item.title}".`,
@@ -224,12 +222,12 @@ export class TrackerInteractionController {
 						});
 					},
 				}).open();
-			},
-			onCleanNote: () => {
-				this.deps.runTask(async () => {
-					await normalizeMediaNoteFrontmatter(this.deps.app, item.file);
-					this.deps.invalidateItemsCache();
-					this.deps.render();
+				},
+				onCleanNote: () => {
+					void this.deps.runTask(async () => {
+						await normalizeMediaNoteFrontmatter(this.deps.app, item.file);
+						this.deps.invalidateItemsCache();
+						this.deps.render();
 				}, `Failed to clean "${item.title}".`, {
 					event: "clean_note",
 					logStart: true,
@@ -239,12 +237,12 @@ export class TrackerInteractionController {
 			},
 			onDeleteNote: () => {
 				const confirmed = window.confirm(`Delete "${item.title}"?`);
-				if (!confirmed) {
-					return;
-				}
-				this.deps.runTask(async () => {
-					await deleteMediaNote(this.deps.app, item.file);
-				}, `Failed to delete "${item.title}".`, {
+					if (!confirmed) {
+						return;
+					}
+					void this.deps.runTask(async () => {
+						await deleteMediaNote(this.deps.app, item.file);
+					}, `Failed to delete "${item.title}".`, {
 					event: "delete_note",
 					logStart: true,
 					successMessage: `Deleted "${item.title}".`,

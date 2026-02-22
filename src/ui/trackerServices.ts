@@ -1,10 +1,10 @@
 import {App} from "obsidian";
-import {MediaItem} from "../types";
 import {createVaultUpdateCommit, isVaultGitRepository, type VaultCommitResult} from "../infra/git/vaultGit";
 import {getAnilistUrl, getFaviconCacheKey, getKnownIconAsset, KNOWN_ICON_BASES} from "../domain/media/links";
 import {getPluginAssetsDirectory} from "../infra/storage/pluginPaths";
 import type {DesktopFaviconCache} from "../infra/cache/faviconCache";
 import type {PluginLogger} from "../infra/logging/pluginLogger";
+import type {MediaItem} from "../domain/media/models";
 
 type TrackerGitServiceDeps = {
 	app: App;

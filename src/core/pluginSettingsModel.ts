@@ -1,4 +1,4 @@
-import {PluginLogLevel, UpdateLogRun, UpdateNotificationMode} from "../types";
+import type {PluginLogLevel, UpdateLogRun, UpdateNotificationMode} from "./updateTypes";
 
 export type StartupUpdateThrottleMode = "day" | "week" | "hours";
 

@@ -1,5 +1,10 @@
 import {spawn} from "child_process";
 
+function getProcessEnv(): Record<string, string | undefined> {
+	const value = (globalThis as unknown as {process?: {env?: Record<string, string | undefined>}}).process?.env;
+	return value ?? {};
+}
+
 export type GitCommandResult = {
 	exitCode: number;
 	stdout: string;
@@ -23,15 +28,15 @@ export function runGit(args: string[], cwd: string, options: GitRunOptions = {})
 		const timeoutMs = Number.isFinite(timeoutCandidate) && (timeoutCandidate ?? 0) > 0
 			? Math.floor(timeoutCandidate as number)
 			: GIT_DEFAULT_TIMEOUT_MS;
-		const child = spawn("git", args, {
-			cwd,
-			windowsHide: true,
-			env: {
-				...process.env,
-				GIT_TERMINAL_PROMPT: "0",
-				GCM_INTERACTIVE: "Never",
-			},
-		});
+			const child = spawn("git", args, {
+				cwd,
+				windowsHide: true,
+				env: {
+					...getProcessEnv(),
+					GIT_TERMINAL_PROMPT: "0",
+					GCM_INTERACTIVE: "Never",
+				},
+			});
 		let stdout = "";
 		let stderr = "";
 		let settled = false;

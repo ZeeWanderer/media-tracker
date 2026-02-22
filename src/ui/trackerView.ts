@@ -1,13 +1,10 @@
 import {App, ItemView, Notice, WorkspaceLeaf} from "obsidian";
-import {MediaItem, UpdateLogRun} from "../types";
-import {MEDIA_STATUS_LABELS} from "./mediaStatusLabels";
-import {MEDIA_TYPE_LABELS} from "./mediaTypeConfig";
 import {NewMediaModal} from "./newMediaModal";
 import {
 	normalizeAllMediaNoteFrontmatter,
 } from "../flows/media";
 import {listMediaItems} from "../domain/media/readModel";
-import {renderCard, renderTableHeader, renderTableRow, type SortDirection, type SortKey} from "./trackerRenderer";
+import {renderCard, renderTableHeader, renderTableRow} from "./trackerRenderer";
 import {openMediaUpdateLog} from "./updateLogView";
 import {TrackerGitService, TrackerIconService} from "./trackerServices";
 import {TrackerRefreshService} from "./trackerRefreshService";
@@ -19,16 +16,18 @@ import {
 	matchesTrackerFilters,
 	matchesTrackerSearch,
 	sortTrackerItems,
-	STATUS_FILTERS,
 	TrackerFilterState,
-	TYPE_FILTERS,
-	TypeFilter,
 	StatusFilter,
+	TypeFilter,
 } from "./trackerFiltering";
 import {MEDIA_TRACKER_VIEW} from "./viewIds";
 import type {MediaTrackerSettings} from "../core/pluginSettingsModel";
 import type {DesktopFaviconCache} from "../infra/cache/faviconCache";
 import type {PluginLogger} from "../infra/logging/pluginLogger";
+import type {MediaItem} from "../domain/media/models";
+import type {UpdateLogRun} from "../core/updateTypes";
+import {renderTrackerControls} from "./trackerViewControls";
+import type {SortDirection, SortKey} from "./trackerRenderTypes";
 export {MEDIA_TRACKER_VIEW};
 
 type TrackerViewPluginDeps = {
@@ -205,16 +204,16 @@ export class MediaTrackerView extends ItemView {
 		cleanupButton.setAttr("aria-label", "Cleanup media frontmatter");
 		cleanupButton.setAttr("title", "Normalize media frontmatter fields");
 		cleanupButton.appendChild(createCleanupIcon());
-		cleanupButton.addEventListener("click", () => {
-			const confirmed = window.confirm("Normalize frontmatter for all media notes? This standardizes media fields and links.");
-			if (!confirmed) {
-				return;
-			}
-			const files = this.getTrackedItems().map((item) => item.file);
-			this.runTask(async () => {
-				const changed = await normalizeAllMediaNoteFrontmatter(this.app, files);
-				this.plugin.logger.info("ui.tracker", "cleanup_all_counts", "Frontmatter normalization results.", {
-					total: files.length,
+			cleanupButton.addEventListener("click", () => {
+				const confirmed = window.confirm("Normalize frontmatter for all media notes? This standardizes media fields and links.");
+				if (!confirmed) {
+					return;
+				}
+				const files = this.getTrackedItems().map((item) => item.file);
+				void this.runTask(async () => {
+					const changed = await normalizeAllMediaNoteFrontmatter(this.app, files);
+					this.plugin.logger.info("ui.tracker", "cleanup_all_counts", "Frontmatter normalization results.", {
+						total: files.length,
 					changed,
 				});
 				new Notice(`Normalized ${changed} of ${files.length} media notes.`);
@@ -236,17 +235,50 @@ export class MediaTrackerView extends ItemView {
 			if (this.gitService.isCreatingCommit) {
 				commitButton.disabled = true;
 				commitButton.addClass("is-disabled");
+				}
+				commitButton.addEventListener("click", () => {
+					void this.runTask(async () => {
+						await this.createGitCommit();
+					}, "Failed to create git commit.");
+				});
 			}
-			commitButton.addEventListener("click", () => {
-				this.runTask(async () => {
-					await this.createGitCommit();
-				}, "Failed to create git commit.");
-			});
-		}
 		const addButton = actions.createEl("button", {cls: "media-tracker__button", text: "New entry"});
 		addButton.addEventListener("click", () => new NewMediaModal(this.plugin).open());
 
-		const {searchInput, clearButton} = this.renderControls(contentEl);
+		const {searchInput, clearButton} = renderTrackerControls(
+			contentEl,
+			{
+				searchQuery: this.searchQuery,
+				typeFilter: this.typeFilter,
+				statusFilter: this.statusFilter,
+				displayMode: this.displayMode,
+			},
+			{
+				onSearchChange: (value) => {
+					this.searchQuery = value;
+					this.requestRender();
+				},
+				onSearchClear: () => {
+					this.searchQuery = "";
+					this.requestRender();
+				},
+				onTypeFilterChange: (value) => {
+					this.typeFilter = value;
+					this.requestRender();
+				},
+				onStatusFilterChange: (value) => {
+					this.statusFilter = value;
+					this.requestRender();
+				},
+				onDisplayModeChange: (value) => {
+					this.displayMode = value;
+					void this.plugin.updateSettings((settings) => {
+						settings.displayMode = this.displayMode;
+					});
+					this.requestRender();
+				},
+			},
+		);
 		if (shouldRefocus && searchInput) {
 			searchInput.value = searchValue;
 			searchInput.focus();
@@ -283,78 +315,6 @@ export class MediaTrackerView extends ItemView {
 				list.appendChild(renderCard(item, handlers));
 			}
 		}
-	}
-
-	private renderControls(container: HTMLElement): {searchInput: HTMLInputElement | null; clearButton: HTMLButtonElement | null} {
-		const controls = container.createDiv({cls: "media-tracker__filters"});
-
-		const searchWrap = controls.createDiv({cls: "media-tracker__search-wrap"});
-		const search = searchWrap.createEl("input");
-		search.type = "search";
-		search.placeholder = "Search title or author";
-		search.value = this.searchQuery;
-		search.classList.add("media-tracker__search");
-		const clearButton = searchWrap.createEl("button");
-		clearButton.type = "button";
-		clearButton.classList.add("media-tracker__search-clear");
-		clearButton.setAttr("aria-label", "Clear search");
-		clearButton.setAttr("title", "Clear search");
-		clearButton.addEventListener("click", () => {
-			search.value = "";
-			this.searchQuery = "";
-			this.requestRender();
-			search.focus();
-		});
-
-		if (search.value) {
-			clearButton.addClass("is-visible");
-		}
-		search.addEventListener("input", () => {
-			this.searchQuery = search.value;
-			this.requestRender();
-			clearButton.toggleClass("is-visible", !!search.value);
-		});
-		let searchInput: HTMLInputElement | null = search;
-
-		const typeSelect = controls.createEl("select");
-		for (const option of TYPE_FILTERS) {
-			typeSelect.createEl("option", {
-				value: option,
-				text: option === "all" ? "All types" : MEDIA_TYPE_LABELS[option],
-			});
-		}
-		typeSelect.value = this.typeFilter;
-		typeSelect.addEventListener("change", () => {
-			this.typeFilter = typeSelect.value as TypeFilter;
-			this.requestRender();
-		});
-
-		const statusSelect = controls.createEl("select");
-		for (const option of STATUS_FILTERS) {
-			statusSelect.createEl("option", {
-				value: option,
-				text: option === "all" ? "All statuses" : MEDIA_STATUS_LABELS[option],
-			});
-		}
-		statusSelect.value = this.statusFilter;
-		statusSelect.addEventListener("change", () => {
-			this.statusFilter = statusSelect.value as StatusFilter;
-			this.requestRender();
-		});
-
-		const displaySelect = controls.createEl("select");
-		displaySelect.createEl("option", {value: "cards", text: "Cards"});
-		displaySelect.createEl("option", {value: "details", text: "Details"});
-		displaySelect.value = this.displayMode;
-		displaySelect.addEventListener("change", () => {
-			this.displayMode = displaySelect.value as DisplayMode;
-			void this.plugin.updateSettings((settings) => {
-				settings.displayMode = this.displayMode;
-			});
-			this.requestRender();
-		});
-
-		return {searchInput, clearButton};
 	}
 
 	private handleSortChange(key: SortKey) {

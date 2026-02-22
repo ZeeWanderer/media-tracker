@@ -1,8 +1,8 @@
 import {App, TFile} from "obsidian";
-import {MediaStatus, MediaType} from "../../types";
 import {cleanMediaFrontmatter, normalizeMediaFilesFrontmatter, updateMediaFrontmatter, updateMediaSnapshot} from "../../domain/media";
 import {collectLinks, extractAnilistId, normalizeStoredLink, setLinks} from "../../domain/media/links";
 import {applyProgressInputToFields} from "../../domain/media/progress";
+import type {MediaStatus, MediaType} from "../../domain/media/config";
 
 export async function updateMediaNoteStatus(app: App, file: TFile, status: MediaStatus): Promise<void> {
 	await updateMediaSnapshot(app, file, (snapshot) => {

@@ -1,42 +1,15 @@
 import {App} from "obsidian";
-import {MediaItem} from "../../../types";
 import {lookupAniListLatest} from "../../../infra/api/anilist/lookup";
 import {updateMediaSnapshot} from "../../../domain/media";
 import {extractAnilistId} from "../../../domain/media/links";
+import type {MediaItem} from "../../../domain/media/models";
+import {providerDelay, sameNumberArray, sameNumberRecord} from "./providerFlowUtils";
 
 export type AniListRefreshResult = {
 	provider: "anilist";
 	status: "updated" | "unchanged" | "failed" | "skipped";
 	message: string;
 };
-
-function delay(ms: number): Promise<void> {
-	if (ms <= 0) {
-		return Promise.resolve();
-	}
-	return new Promise((resolve) => window.setTimeout(resolve, ms));
-}
-
-function sameNumberArray(a: number[] | undefined, b: number[] | undefined): boolean {
-	const left = a ?? [];
-	const right = b ?? [];
-	if (left.length !== right.length) {
-		return false;
-	}
-	return left.every((value, index) => value === right[index]);
-}
-
-function sameNumberRecord(a: Record<string, number> | undefined, b: Record<string, number> | undefined): boolean {
-	const leftEntries = Object.entries(a ?? {}).sort((x, y) => Number(x[0]) - Number(y[0]));
-	const rightEntries = Object.entries(b ?? {}).sort((x, y) => Number(x[0]) - Number(y[0]));
-	if (leftEntries.length !== rightEntries.length) {
-		return false;
-	}
-	return leftEntries.every(([leftKey, leftVal], index) => {
-		const [rightKey, rightVal] = rightEntries[index] ?? [];
-		return leftKey === rightKey && leftVal === rightVal;
-	});
-}
 
 function mergeNumberRecord(
 	base: Record<string, number> | undefined,
@@ -118,7 +91,7 @@ export async function refreshAniListLatest(
 			snapshot.anilistNextEpisode = undefined;
 			snapshot.anilistNextAiringAt = undefined;
 		});
-		await delay(minDelayMs);
+		await providerDelay(minDelayMs);
 		return {
 			provider: "anilist",
 			status: changed ? "updated" : "unchanged",
@@ -161,7 +134,7 @@ export async function refreshAniListLatest(
 		snapshot.anilistSeasonEpisodes = nextSeasonEpisodes;
 	});
 
-	await delay(minDelayMs);
+	await providerDelay(minDelayMs);
 	if (item.type === "manga") {
 		if (nextChapters !== undefined || nextVolumes !== undefined) {
 			return {

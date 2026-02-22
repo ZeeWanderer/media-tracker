@@ -1,6 +1,6 @@
 import {Menu} from "obsidian";
 import {TMDB_TYPES} from "../domain/media/config";
-import type {MediaItem} from "../types";
+import type {MediaItem} from "../domain/media/models";
 
 type TrackerCardMenuHandlers = {
 	onOpenNote: () => void;

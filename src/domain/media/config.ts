@@ -4,9 +4,6 @@ export type MediaType = typeof MEDIA_TYPES[number];
 export const MEDIA_STATUSES = ["planned", "active", "completed", "on-hold", "dropped"] as const;
 export type MediaStatus = typeof MEDIA_STATUSES[number];
 
-export const MEDIA_TYPES_SET = new Set<MediaType>(MEDIA_TYPES);
-export const MEDIA_STATUSES_SET = new Set<MediaStatus>(MEDIA_STATUSES);
-
 export const TMDB_TYPES = new Set<MediaType>(["series", "anime"]);
 export const ANILIST_TYPES = new Set<MediaType>(["anime", "manga"]);
 export const IMDB_TYPES = new Set<MediaType>(["series", "anime", "movie"]);

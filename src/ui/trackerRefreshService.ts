@@ -1,9 +1,10 @@
 import {App, Notice} from "obsidian";
-import {MediaItem, UpdateLogRun} from "../types";
 import {formatRefreshRunSummary, refreshTrackedMedia} from "../flows/media";
 import {executeLibraryRefresh} from "../core/libraryRefreshOrchestrator";
 import type {MediaTrackerSettings} from "../core/pluginSettingsModel";
 import type {PluginLogger} from "../infra/logging/pluginLogger";
+import type {MediaItem} from "../domain/media/models";
+import type {UpdateLogRun} from "../core/updateTypes";
 
 type TrackerRefreshServiceDeps = {
 	app: App;

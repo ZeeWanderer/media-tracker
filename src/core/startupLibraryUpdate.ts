@@ -1,7 +1,8 @@
 import {PluginLogger} from "../infra/logging/pluginLogger";
 import {MediaTrackerSettings} from "./pluginSettingsModel";
-import {MediaItem, UpdateLogRun} from "../types";
 import {executeLibraryRefresh} from "./libraryRefreshOrchestrator";
+import type {MediaItem} from "../domain/media/models";
+import type {UpdateLogRun} from "./updateTypes";
 
 type StartupLibraryUpdateDeps = {
 	getSettings: () => MediaTrackerSettings;
