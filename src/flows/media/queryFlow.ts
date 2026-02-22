@@ -1,5 +1,5 @@
 import {App, TFile} from "obsidian";
-import {MediaTrackerSettings} from "../../settings";
+import {MediaTrackerSettings} from "../../core/pluginSettingsModel";
 import {MediaItem} from "../../types";
 import {listMediaItems} from "../../domain/media/readModel";
 

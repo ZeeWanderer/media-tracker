@@ -1,53 +1,88 @@
-import {App, Notice, PluginSettingTab, Setting} from "obsidian";
-import MediaTrackerPlugin from "./main";
-import {UpdateLogRun, UpdateNotificationMode} from "./types";
-import {PluginLogLevel, getPluginLogDirectory} from "./infra/logging/pluginLogger";
+import {App, Notice, PluginSettingTab, Setting, TextComponent} from "obsidian";
+import type MediaTrackerPlugin from "./main";
+import {getPluginLogDirectory} from "./infra/logging/pluginLogger";
 import {openPluginLog} from "./ui/pluginLogView";
 import {ensurePluginGitignoreEntries} from "./flows/gitFlow";
-
-export type StartupUpdateThrottleMode = "day" | "week" | "hours";
-
-export interface MediaTrackerSettings {
-	mediaFolder: string;
-	displayMode: "cards" | "details";
-	tmdbApiKey: string;
-	tmdbMinIntervalMs: number;
-	tmdbLastSync?: number;
-	updateNotificationMode: UpdateNotificationMode;
-	autoOpenUpdateLogOnFailure: boolean;
-	startupLibraryUpdateEnabled: boolean;
-	startupLibraryUpdateThrottleMode: StartupUpdateThrottleMode;
-	startupLibraryUpdateIntervalHours: number;
-	startupLibraryUpdateLastRun?: number;
-	pendingUpdateRun?: UpdateLogRun;
-	updateLogRuns: UpdateLogRun[];
-	loggingEnabled: boolean;
-	loggingLevel: PluginLogLevel;
-	loggingMaxFiles: number;
-}
-
-export const DEFAULT_SETTINGS: MediaTrackerSettings = {
-	mediaFolder: "Media",
-	displayMode: "cards",
-	tmdbApiKey: "",
-	tmdbMinIntervalMs: 300,
-	updateNotificationMode: "summary",
-	autoOpenUpdateLogOnFailure: true,
-	startupLibraryUpdateEnabled: false,
-	startupLibraryUpdateThrottleMode: "day",
-	startupLibraryUpdateIntervalHours: 24,
-	updateLogRuns: [],
-	loggingEnabled: true,
-	loggingLevel: "info",
-	loggingMaxFiles: 14,
-};
+import {DEFAULT_SETTINGS, MediaTrackerSettings} from "./core/pluginSettingsModel";
 
 export class MediaTrackerSettingTab extends PluginSettingTab {
 	plugin: MediaTrackerPlugin;
+	private readonly textSettingDebounceMs = 450;
+	private readonly textSettingTimers = new Map<string, number>();
+	private readonly pendingTextSettingValues = new Map<string, string>();
+	private readonly textSettingUpdaters = new Map<string, (settings: MediaTrackerSettings, value: string) => void>();
 
 	constructor(app: App, plugin: MediaTrackerPlugin) {
 		super(app, plugin);
 		this.plugin = plugin;
+	}
+
+	hide(): void {
+		this.flushAllPendingTextSettingUpdates();
+		super.hide();
+	}
+
+	private bindDebouncedTextSetting(
+		key: string,
+		text: TextComponent,
+		value: string,
+		updater: (settings: MediaTrackerSettings, value: string) => void,
+	) {
+		this.textSettingUpdaters.set(key, updater);
+		const pending = this.pendingTextSettingValues.get(key);
+		text.setValue(pending ?? value);
+		text.onChange((nextValue) => this.scheduleTextSettingUpdate(key, nextValue));
+		text.inputEl.addEventListener("blur", () => this.flushTextSettingUpdate(key));
+	}
+
+	private scheduleTextSettingUpdate(key: string, value: string) {
+		this.pendingTextSettingValues.set(key, value);
+		const existingTimer = this.textSettingTimers.get(key);
+		if (existingTimer !== undefined) {
+			window.clearTimeout(existingTimer);
+		}
+		const timer = window.setTimeout(() => {
+			this.textSettingTimers.delete(key);
+			this.flushTextSettingUpdate(key);
+		}, this.textSettingDebounceMs);
+		this.textSettingTimers.set(key, timer);
+	}
+
+	private flushTextSettingUpdate(key: string) {
+		const existingTimer = this.textSettingTimers.get(key);
+		if (existingTimer !== undefined) {
+			window.clearTimeout(existingTimer);
+			this.textSettingTimers.delete(key);
+		}
+		const value = this.pendingTextSettingValues.get(key);
+		const updater = this.textSettingUpdaters.get(key);
+		if (value === undefined || !updater) {
+			return;
+		}
+		this.pendingTextSettingValues.delete(key);
+		void this.plugin.updateSettings((settings) => {
+			updater(settings, value);
+		});
+	}
+
+	private flushAllPendingTextSettingUpdates() {
+		const updates = Array.from(this.pendingTextSettingValues.entries());
+		for (const timer of this.textSettingTimers.values()) {
+			window.clearTimeout(timer);
+		}
+		this.textSettingTimers.clear();
+		this.pendingTextSettingValues.clear();
+		if (!updates.length) {
+			return;
+		}
+		void this.plugin.updateSettings((settings) => {
+			for (const [key, value] of updates) {
+				const updater = this.textSettingUpdaters.get(key);
+				if (updater) {
+					updater(settings, value);
+				}
+			}
+		});
 	}
 
 	display(): void {
@@ -59,39 +94,48 @@ export class MediaTrackerSettingTab extends PluginSettingTab {
 			new Setting(containerEl)
 				.setName("Media folder")
 				.setDesc("Folder path inside your vault that stores media notes.")
-				.addText((text) => text
-					.setPlaceholder("Media")
-					.setValue(this.plugin.settings.mediaFolder)
-					.onChange(async (value) => {
-						await this.plugin.updateSettings((settings) => {
+				.addText((text) => {
+					text.setPlaceholder("Media");
+					this.bindDebouncedTextSetting(
+						"media_folder",
+						text,
+						this.plugin.settings.mediaFolder,
+						(settings, value) => {
 							settings.mediaFolder = value.trim() || DEFAULT_SETTINGS.mediaFolder;
-						});
-					}));
+						},
+					);
+				});
 
 			new Setting(containerEl)
 				.setName("TMDb API key")
 				.setDesc("Optional. Used to check latest episodes for series.")
-				.addText((text) => text
-					.setPlaceholder("tmdb api key")
-					.setValue(this.plugin.settings.tmdbApiKey)
-					.onChange(async (value) => {
-						await this.plugin.updateSettings((settings) => {
+				.addText((text) => {
+					text.setPlaceholder("tmdb api key");
+					this.bindDebouncedTextSetting(
+						"tmdb_api_key",
+						text,
+						this.plugin.settings.tmdbApiKey,
+						(settings, value) => {
 							settings.tmdbApiKey = value.trim();
-						});
-					}));
+						},
+					);
+				});
 
 			new Setting(containerEl)
 				.setName("TMDb rate limit (ms)")
 				.setDesc("Minimum delay between TMDb requests when bulk refreshing.")
-				.addText((text) => text
-					.setPlaceholder("300")
-					.setValue(String(this.plugin.settings.tmdbMinIntervalMs))
-					.onChange(async (value) => {
-						const parsed = Number.parseInt(value, 10);
-						await this.plugin.updateSettings((settings) => {
+				.addText((text) => {
+					text.setPlaceholder("300");
+					this.bindDebouncedTextSetting(
+						"tmdb_min_interval_ms",
+						text,
+						String(this.plugin.settings.tmdbMinIntervalMs),
+						(settings, value) => {
+							const parsed = Number.parseInt(value, 10);
 							settings.tmdbMinIntervalMs = Number.isFinite(parsed) ? parsed : DEFAULT_SETTINGS.tmdbMinIntervalMs;
-						});
-					}));
+						},
+					);
+				});
 
 		new Setting(containerEl)
 			.setName("Update notifications")
@@ -156,18 +200,20 @@ export class MediaTrackerSettingTab extends PluginSettingTab {
 				.setDesc("Used only when throttle is set to custom hours.")
 				.addText((text) => {
 					text.setPlaceholder("24");
-					text.setValue(String(this.plugin.settings.startupLibraryUpdateIntervalHours));
-					text.inputEl.disabled = this.plugin.settings.startupLibraryUpdateThrottleMode !== "hours";
-					text.onChange(async (value) => {
-						const parsed = Number.parseFloat(value);
-						await this.plugin.updateSettings((settings) => {
+					this.bindDebouncedTextSetting(
+						"startup_library_interval_hours",
+						text,
+						String(this.plugin.settings.startupLibraryUpdateIntervalHours),
+						(settings, value) => {
+							const parsed = Number.parseFloat(value);
 							if (Number.isFinite(parsed) && parsed > 0) {
 								settings.startupLibraryUpdateIntervalHours = parsed;
 							} else {
 								settings.startupLibraryUpdateIntervalHours = DEFAULT_SETTINGS.startupLibraryUpdateIntervalHours;
 							}
-						});
-					});
+						},
+					);
+					text.inputEl.disabled = this.plugin.settings.startupLibraryUpdateThrottleMode !== "hours";
 				});
 
 		containerEl.createEl("h3", {text: "Developer logging"});
@@ -203,15 +249,18 @@ export class MediaTrackerSettingTab extends PluginSettingTab {
 			new Setting(containerEl)
 				.setName("Max log files")
 				.setDesc("Maximum number of daily log files to keep.")
-				.addText((text) => text
-					.setPlaceholder("14")
-					.setValue(String(this.plugin.settings.loggingMaxFiles))
-					.onChange(async (value) => {
-						const parsed = Number.parseInt(value, 10);
-						await this.plugin.updateSettings((settings) => {
+				.addText((text) => {
+					text.setPlaceholder("14");
+					this.bindDebouncedTextSetting(
+						"logging_max_files",
+						text,
+						String(this.plugin.settings.loggingMaxFiles),
+						(settings, value) => {
+							const parsed = Number.parseInt(value, 10);
 							settings.loggingMaxFiles = Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_SETTINGS.loggingMaxFiles;
-						});
-					}));
+						},
+					);
+				});
 
 		new Setting(containerEl)
 			.setName("Open plugin log")

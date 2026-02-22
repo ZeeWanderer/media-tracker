@@ -1,5 +1,5 @@
-import MediaTrackerPlugin from "../main";
-import {MEDIA_TRACKER_VIEW} from "../ui/trackerView";
+import type MediaTrackerPlugin from "../main";
+import {MEDIA_TRACKER_VIEW} from "../ui/viewIds";
 import {NewMediaModal} from "../ui/newMediaModal";
 import {openMediaUpdateLog} from "../ui/updateLogView";
 import {openPluginLog} from "../ui/pluginLogView";

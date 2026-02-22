@@ -1,9 +1,7 @@
-import {NewMediaDraft} from "../../types";
-import {ANILIST_TYPES, IMDB_TYPES, NOVEL_PROGRESS_TYPES, SEASON_EPISODE_TYPES, type MediaStatus} from "./config";
+import {ANILIST_TYPES, IMDB_TYPES, MEDIA_STATUSES, NOVEL_PROGRESS_TYPES, SEASON_EPISODE_TYPES} from "./config";
 import {extractImdbId, normalizeLinks} from "./links";
 import {parseChapterProgressValue} from "./progress";
-
-const MEDIA_STATUSES: MediaStatus[] = ["planned", "active", "completed", "on-hold", "dropped"];
+import type {NewMediaDraft} from "./models";
 
 function normalizeText(value?: string): string | undefined {
 	if (typeof value !== "string") {

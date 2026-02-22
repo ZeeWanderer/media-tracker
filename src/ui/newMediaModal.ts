@@ -1,5 +1,5 @@
 import {Modal, Notice, Setting} from "obsidian";
-import MediaTrackerPlugin from "../main";
+import type MediaTrackerPlugin from "../main";
 import {MediaStatus, MediaType, NewMediaDraft, NewMediaFieldConfig} from "../types";
 import {MEDIA_STATUS_LABELS} from "./mediaStatusLabels";
 import {MEDIA_TYPE_LABELS} from "./mediaTypeConfig";
@@ -7,19 +7,11 @@ import {ANILIST_TYPES, IMDB_TYPES, MEDIA_STATUSES, MEDIA_TYPES} from "../domain/
 import {createMediaNoteFromDraft, updateMediaDraftType} from "../flows/media";
 import {NEW_MEDIA_BASE_FIELDS, NEW_MEDIA_TYPE_FIELDS} from "./newMediaForm";
 import {extractImdbId} from "../domain/media/links";
-
-type TaskLogContext = {
-	scope?: string;
-	event: string;
-	startMessage?: string;
-	successMessage?: string;
-	meta?: Record<string, unknown>;
-	logStart?: boolean;
-	logSuccess?: boolean;
-};
+import {runLoggedTask, type TaskLogContext} from "./taskRunner";
 
 export class NewMediaModal extends Modal {
 	plugin: MediaTrackerPlugin;
+	private createInProgress = false;
 	private draft: NewMediaDraft = {
 		title: "",
 		type: "novel",
@@ -49,36 +41,69 @@ export class NewMediaModal extends Modal {
 		};
 	}
 
-	private runTask(task: () => Promise<void>, errorMessage: string, logContext?: TaskLogContext) {
-		const scope = logContext?.scope ?? "ui.new_media";
-		if (logContext?.logStart) {
-			this.plugin.logger.info(
-				scope,
-				`${logContext.event}_started`,
-				logContext.startMessage ?? "Started action.",
-				logContext.meta,
-			);
+	private runTask(task: () => Promise<void>, errorMessage: string, logContext?: TaskLogContext): Promise<boolean> {
+		return runLoggedTask(task, errorMessage, {
+			logger: this.plugin.logger,
+			defaultScope: "ui.new_media",
+		}, logContext);
+	}
+
+	private async handleCreateNote(createButton: HTMLButtonElement) {
+		if (this.createInProgress) {
+			return;
 		}
-		void task()
-			.then(() => {
-				if (!logContext || logContext.logSuccess === false) {
+		this.createInProgress = true;
+		createButton.disabled = true;
+		createButton.classList.add("is-disabled");
+		const draftMeta = this.getDraftLogMeta(this.draft);
+		try {
+			await this.runTask(async () => {
+				const result = await createMediaNoteFromDraft(this.app, this.plugin.settings, this.draft);
+				if (result.status === "created") {
+					if (result.disambiguated) {
+						new Notice(`Created as "${result.workFolder}/${result.fileName}" because this title/type already existed.`);
+					}
+					const leaf = this.app.workspace.getLeaf("tab");
+					await leaf.openFile(result.file);
+					this.plugin.logger.info("ui.new_media", "create_note_result", "Created media note.", {
+						...draftMeta,
+						filePath: result.file.path,
+						disambiguated: result.disambiguated,
+					});
+					this.close();
 					return;
 				}
-				this.plugin.logger.info(
-					scope,
-					`${logContext.event}_succeeded`,
-					logContext.successMessage ?? "Completed action.",
-					logContext.meta,
-				);
-			})
-			.catch((error) => {
-				console.error(error);
-				this.plugin.logger.error(scope, logContext ? `${logContext.event}_failed` : "task_failed", errorMessage, {
-					...(logContext?.meta ?? {}),
-					error: error instanceof Error ? error.message : String(error),
+				if (result.reason === "id_conflict") {
+					const idLabel = result.conflict.kind === "imdb" ? "IMDb ID" : "AniList ID";
+					new Notice(`${idLabel} ${result.conflict.value} already exists in "${result.conflict.item.title}" (${result.conflict.item.file.path}).`);
+					this.plugin.logger.warn("ui.new_media", "create_note_result", "Create media note rejected due to ID conflict.", {
+						...draftMeta,
+						reason: result.reason,
+						conflictKind: result.conflict.kind,
+						conflictValue: result.conflict.value,
+						conflictPath: result.conflict.item.file.path,
+					});
+					return;
+				}
+				new Notice("Please enter a title.");
+				this.plugin.logger.warn("ui.new_media", "create_note_result", "Create media note rejected due to missing title.", {
+					...draftMeta,
+					reason: result.reason,
 				});
-				new Notice(errorMessage);
+			}, "Failed to create media note.", {
+				event: "create_note",
+				logStart: true,
+				logSuccess: false,
+				startMessage: "Creating media note from modal draft.",
+				meta: draftMeta,
 			});
+		} finally {
+			this.createInProgress = false;
+			if (createButton.isConnected) {
+				createButton.disabled = false;
+				createButton.classList.remove("is-disabled");
+			}
+		}
 	}
 
 	private render() {
@@ -121,22 +146,7 @@ export class NewMediaModal extends Modal {
 		const actions = contentEl.createDiv({cls: "media-tracker__modal-actions"});
 		const createButton = actions.createEl("button", {text: "Create note", cls: "media-tracker__button"});
 		createButton.addEventListener("click", () => {
-			const draftMeta = this.getDraftLogMeta(this.draft);
-			this.runTask(async () => {
-				const created = await createMediaNoteFromDraft(this.app, this.plugin.settings, this.draft);
-				if (created) {
-					this.plugin.logger.info("ui.new_media", "create_note_result", "Created media note.", draftMeta);
-					this.close();
-					return;
-				}
-				this.plugin.logger.warn("ui.new_media", "create_note_result", "Create media note was rejected by validation.", draftMeta);
-			}, "Failed to create media note.", {
-				event: "create_note",
-				logStart: true,
-				logSuccess: false,
-				startMessage: "Creating media note from modal draft.",
-				meta: draftMeta,
-			});
+			void this.handleCreateNote(createButton);
 		});
 	}
 

@@ -64,6 +64,7 @@ export type MediaFrontmatterFieldSchema = {
 	kind: MediaFrontmatterFieldKind;
 	required?: boolean;
 	enumValues?: readonly string[];
+	defaultValue?: string | number | string[] | number[] | Record<string, number>;
 	description?: string;
 };
 
@@ -86,6 +87,7 @@ export const MEDIA_FRONTMATTER_SCHEMA: MediaFrontmatterSchema = {
 		status: {
 			kind: "string",
 			enumValues: MEDIA_STATUS_VALUES,
+			defaultValue: "planned",
 			description: "Tracking status.",
 		},
 		title: {kind: "string"},

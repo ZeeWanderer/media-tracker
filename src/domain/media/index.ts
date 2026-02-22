@@ -12,36 +12,16 @@ export {
 	type MediaType,
 } from "./config";
 export {
-	CURRENT_MEDIA_SCHEMA_VERSION,
-	MEDIA_FRONTMATTER_SCHEMA,
-	MEDIA_SCHEMA_VERSION_KEY,
-	type LatestMediaSnapshot,
-	type MediaSnapshotV3,
-} from "./schema";
-export {
 	cleanMediaFrontmatter,
-	CURRENT_MEDIA_SCHEMA_VERSION as CURRENT_FRONTMATTER_SCHEMA_VERSION,
-	decodeLatestMediaSnapshot,
 	decodeMediaSnapshot,
-	encodeLatestMediaSnapshot,
-	migrateMediaSnapshotToLatest,
 	normalizeMediaFilesFrontmatter,
-	normalizeMediaFrontmatter,
-	processMediaFrontmatter,
-	readMediaSchemaVersion,
-	sanitizeLatestMediaSnapshot,
 	updateMediaFrontmatter,
 	updateMediaSnapshot,
-	validateLatestMediaSnapshot,
-	type LatestMediaSnapshot as FrontmatterSnapshot,
+	type LatestMediaSnapshot,
 	type MediaFrontmatterProcessResult,
 	type MediaFrontmatterUpdater,
-	type MediaMigrationResult,
 	type MediaSnapshotDecodeResult,
-	type MediaSnapshotMigrationResult,
 	type MediaSnapshotUpdater,
-	type MediaSnapshotV3 as FrontmatterSnapshotV3,
-	type MediaValidationIssue,
 } from "./frontmatter";
 export {
 	sanitizeMediaFileName,
@@ -93,3 +73,7 @@ export {
 	getTitleSortKey,
 	listMediaItems,
 } from "./readModel";
+export type {
+	MediaItem,
+	NewMediaDraft,
+} from "./models";

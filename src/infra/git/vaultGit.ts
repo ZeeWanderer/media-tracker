@@ -1,13 +1,21 @@
-import {App, FileSystemAdapter} from "obsidian";
-import {spawn} from "child_process";
-import * as path from "path";
-
-type GitCommandResult = {
-	exitCode: number;
-	stdout: string;
-	stderr: string;
-	errorMessage?: string;
-};
+import {App} from "obsidian";
+import * as fs from "fs";
+import {
+	GIT_FAST_TIMEOUT_MS,
+	GIT_NETWORK_TIMEOUT_MS,
+	GIT_WRITE_TIMEOUT_MS,
+	hasNoUpstream,
+	isGitMissing,
+	parseAheadBehind,
+	runGit,
+	summarizeGitError,
+} from "./gitProcess";
+import {
+	getPluginGitignoreEntries as getPluginGitignoreEntriesForPlugin,
+	getRepoPathWithinVault,
+	getVaultBasePath,
+	resolveCommitScopePaths,
+} from "./vaultGitPaths";
 
 type VaultCommitStatus =
 	| "created_and_pushed"
@@ -24,6 +32,11 @@ export type VaultCommitResult = {
 	commitMessage?: string;
 };
 
+export type VaultCommitScope = {
+	mediaFolder: string;
+	pluginId: string;
+};
+
 type VaultGitignoreStatus =
 	| "updated"
 	| "already_up_to_date"
@@ -38,124 +51,6 @@ export type VaultGitignoreUpdateResult = {
 	gitignorePath?: string;
 	addedEntries?: string[];
 };
-
-function getVaultBasePath(app: App): string | null {
-	const adapter = app.vault.adapter;
-	if (!(adapter instanceof FileSystemAdapter)) {
-		return null;
-	}
-	return adapter.getBasePath();
-}
-
-function runGit(args: string[], cwd: string): Promise<GitCommandResult> {
-	return new Promise((resolve) => {
-		const child = spawn("git", args, {cwd, windowsHide: true});
-		let stdout = "";
-		let stderr = "";
-		let settled = false;
-
-		const finish = (result: GitCommandResult) => {
-			if (settled) {
-				return;
-			}
-			settled = true;
-			resolve(result);
-		};
-
-		child.stdout?.setEncoding("utf8");
-		child.stdout?.on("data", (chunk: string) => {
-			stdout += chunk;
-		});
-
-		child.stderr?.setEncoding("utf8");
-		child.stderr?.on("data", (chunk: string) => {
-			stderr += chunk;
-		});
-
-		child.on("error", (error: Error) => {
-			finish({
-				exitCode: -1,
-				stdout,
-				stderr,
-				errorMessage: error.message,
-			});
-		});
-
-		child.on("close", (code: number | null) => {
-			finish({
-				exitCode: code ?? -1,
-				stdout,
-				stderr,
-			});
-		});
-	});
-}
-
-function isGitMissing(result: GitCommandResult): boolean {
-	if (result.errorMessage && /enoent/i.test(result.errorMessage)) {
-		return true;
-	}
-	return result.exitCode === -1 && !result.stdout.trim().length && !result.stderr.trim().length;
-}
-
-function summarizeGitError(result: GitCommandResult): string {
-	const stderr = result.stderr.trim();
-	if (stderr.length) {
-		return stderr;
-	}
-	const stdout = result.stdout.trim();
-	if (stdout.length) {
-		return stdout;
-	}
-	return "Git command failed.";
-}
-
-function hasNoUpstream(result: GitCommandResult): boolean {
-	const output = `${result.stdout}\n${result.stderr}`.toLowerCase();
-	return output.includes("no upstream configured")
-		|| output.includes("no upstream branch")
-		|| output.includes("head does not point to a branch");
-}
-
-function parseAheadBehind(raw: string): {ahead: number; behind: number} | null {
-	const parts = raw.trim().split(/\s+/);
-	const aheadRaw = parts[0];
-	const behindRaw = parts[1];
-	if (!aheadRaw || !behindRaw) {
-		return null;
-	}
-	const ahead = Number.parseInt(aheadRaw, 10);
-	const behind = Number.parseInt(behindRaw, 10);
-	if (!Number.isFinite(ahead) || !Number.isFinite(behind)) {
-		return null;
-	}
-	return {ahead, behind};
-}
-
-function normalizePathValue(value: string): string {
-	const normalized = path.normalize(path.resolve(value));
-	if (/^[a-zA-Z]:[\\/]/.test(normalized)) {
-		return normalized.toLowerCase();
-	}
-	return normalized;
-}
-
-function getRepoPathWithinVault(vaultPath: string, repoRoot: string): string | null {
-	const normalizedVault = normalizePathValue(vaultPath);
-	const normalizedRepo = normalizePathValue(repoRoot);
-	if (normalizedVault === normalizedRepo) {
-		return "";
-	}
-	const relative = path.relative(vaultPath, repoRoot);
-	if (!relative.length || relative.startsWith("..") || path.isAbsolute(relative)) {
-		return null;
-	}
-	const normalizedRelative = normalizePathValue(path.join(vaultPath, relative));
-	if (!normalizedRelative.startsWith(`${normalizedVault}${path.sep}`)) {
-		return null;
-	}
-	return relative.split(path.sep).join("/");
-}
 
 function normalizeIgnorePattern(value: string): string {
 	return value.trim().replace(/^\/+/, "").replace(/\/+$/, "").toLowerCase();
@@ -194,11 +89,7 @@ export function getUpdateCommitMessage(value: Date = new Date()): string {
 }
 
 export function getPluginGitignoreEntries(app: App, pluginId: string): string[] {
-	const configDir = app.vault.configDir.replace(/^\/+|\/+$/g, "");
-	return [
-		`${configDir}/plugins/${pluginId}/cache/`,
-		`${configDir}/plugins/${pluginId}/logs/`,
-	];
+	return getPluginGitignoreEntriesForPlugin(app, pluginId);
 }
 
 export async function isVaultGitRepository(app: App): Promise<boolean> {
@@ -206,7 +97,7 @@ export async function isVaultGitRepository(app: App): Promise<boolean> {
 	if (!vaultPath) {
 		return false;
 	}
-	const result = await runGit(["rev-parse", "--is-inside-work-tree"], vaultPath);
+	const result = await runGit(["rev-parse", "--is-inside-work-tree"], vaultPath, {timeoutMs: GIT_FAST_TIMEOUT_MS});
 	return result.exitCode === 0 && result.stdout.trim() === "true";
 }
 
@@ -222,7 +113,7 @@ export async function ensurePluginGitignoreEntries(
 		};
 	}
 
-	const repoCheck = await runGit(["rev-parse", "--is-inside-work-tree"], vaultPath);
+	const repoCheck = await runGit(["rev-parse", "--is-inside-work-tree"], vaultPath, {timeoutMs: GIT_FAST_TIMEOUT_MS});
 	if (isGitMissing(repoCheck)) {
 		return {
 			status: "git_missing",
@@ -236,7 +127,7 @@ export async function ensurePluginGitignoreEntries(
 		};
 	}
 
-	const rootResult = await runGit(["rev-parse", "--show-toplevel"], vaultPath);
+	const rootResult = await runGit(["rev-parse", "--show-toplevel"], vaultPath, {timeoutMs: GIT_FAST_TIMEOUT_MS});
 	if (rootResult.exitCode !== 0) {
 		return {
 			status: "failed",
@@ -295,7 +186,10 @@ export async function ensurePluginGitignoreEntries(
 	};
 }
 
-export async function createVaultUpdateCommit(app: App): Promise<VaultCommitResult> {
+export async function createVaultUpdateCommit(
+	app: App,
+	scope: VaultCommitScope,
+): Promise<VaultCommitResult> {
 	const vaultPath = getVaultBasePath(app);
 	if (!vaultPath) {
 		return {
@@ -304,7 +198,7 @@ export async function createVaultUpdateCommit(app: App): Promise<VaultCommitResu
 		};
 	}
 
-	const repoCheck = await runGit(["rev-parse", "--is-inside-work-tree"], vaultPath);
+	const repoCheck = await runGit(["rev-parse", "--is-inside-work-tree"], vaultPath, {timeoutMs: GIT_FAST_TIMEOUT_MS});
 	if (isGitMissing(repoCheck)) {
 		return {
 			status: "git_missing",
@@ -318,9 +212,57 @@ export async function createVaultUpdateCommit(app: App): Promise<VaultCommitResu
 		};
 	}
 
-	const upstreamResult = await runGit(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"], vaultPath);
+	const rootResult = await runGit(["rev-parse", "--show-toplevel"], vaultPath, {timeoutMs: GIT_FAST_TIMEOUT_MS});
+	if (rootResult.exitCode !== 0) {
+		return {
+			status: "failed",
+			message: `Failed to determine repository root: ${summarizeGitError(rootResult)}`,
+		};
+	}
+	const repoRoot = rootResult.stdout.trim();
+	if (!repoRoot.length) {
+		return {
+			status: "failed",
+			message: "Failed to determine repository root.",
+		};
+	}
+
+	const scopeCandidates = resolveCommitScopePaths(
+		app,
+		vaultPath,
+		repoRoot,
+		scope.mediaFolder,
+		scope.pluginId,
+	);
+	const scopePathspecs: string[] = [];
+	for (const candidate of scopeCandidates) {
+		if (fs.existsSync(candidate.absolutePath)) {
+			scopePathspecs.push(candidate.repoRelativePath);
+			continue;
+		}
+		const trackedResult = await runGit(
+			["ls-files", "--error-unmatch", "--", candidate.repoRelativePath],
+			vaultPath,
+			{timeoutMs: GIT_FAST_TIMEOUT_MS},
+		);
+		if (trackedResult.exitCode === 0) {
+			scopePathspecs.push(candidate.repoRelativePath);
+		}
+	}
+	if (!scopePathspecs.length) {
+		return {
+			status: "failed",
+			message: "No media/plugin paths inside the repository scope were found.",
+		};
+	}
+
+	const upstreamResult = await runGit(
+		["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"],
+		vaultPath,
+		{timeoutMs: GIT_FAST_TIMEOUT_MS},
+	);
 	if (upstreamResult.exitCode === 0) {
-		const fetchResult = await runGit(["fetch", "--quiet"], vaultPath);
+		const fetchResult = await runGit(["fetch", "--quiet"], vaultPath, {timeoutMs: GIT_NETWORK_TIMEOUT_MS});
 		if (fetchResult.exitCode !== 0) {
 			return {
 				status: "failed",
@@ -328,7 +270,11 @@ export async function createVaultUpdateCommit(app: App): Promise<VaultCommitResu
 			};
 		}
 
-		const aheadBehindResult = await runGit(["rev-list", "--left-right", "--count", "HEAD...@{u}"], vaultPath);
+		const aheadBehindResult = await runGit(
+			["rev-list", "--left-right", "--count", "HEAD...@{u}"],
+			vaultPath,
+			{timeoutMs: GIT_FAST_TIMEOUT_MS},
+		);
 		if (aheadBehindResult.exitCode !== 0) {
 			return {
 				status: "failed",
@@ -356,7 +302,7 @@ export async function createVaultUpdateCommit(app: App): Promise<VaultCommitResu
 		};
 	}
 
-	const addResult = await runGit(["add", "-A"], vaultPath);
+	const addResult = await runGit(["add", "-A", "--", ...scopePathspecs], vaultPath, {timeoutMs: GIT_WRITE_TIMEOUT_MS});
 	if (addResult.exitCode !== 0) {
 		return {
 			status: "failed",
@@ -364,11 +310,13 @@ export async function createVaultUpdateCommit(app: App): Promise<VaultCommitResu
 		};
 	}
 
-	const diffResult = await runGit(["diff", "--cached", "--quiet", "--exit-code"], vaultPath);
+	const diffResult = await runGit(["diff", "--cached", "--quiet", "--exit-code", "--", ...scopePathspecs], vaultPath, {
+		timeoutMs: GIT_WRITE_TIMEOUT_MS,
+	});
 	if (diffResult.exitCode === 0) {
 		return {
 			status: "no_changes",
-			message: "No changes to commit.",
+			message: "No media/plugin changes to commit.",
 		};
 	}
 	if (diffResult.exitCode !== 1) {
@@ -379,13 +327,17 @@ export async function createVaultUpdateCommit(app: App): Promise<VaultCommitResu
 	}
 
 	const commitMessage = getUpdateCommitMessage();
-	const commitResult = await runGit(["commit", "-m", commitMessage], vaultPath);
+	const commitResult = await runGit(
+		["commit", "-m", commitMessage, "--only", "--", ...scopePathspecs],
+		vaultPath,
+		{timeoutMs: GIT_WRITE_TIMEOUT_MS},
+	);
 	if (commitResult.exitCode !== 0) {
 		const output = `${commitResult.stdout}\n${commitResult.stderr}`.toLowerCase();
 		if (output.includes("nothing to commit")) {
 			return {
 				status: "no_changes",
-				message: "No changes to commit.",
+				message: "No media/plugin changes to commit.",
 			};
 		}
 		return {
@@ -394,7 +346,7 @@ export async function createVaultUpdateCommit(app: App): Promise<VaultCommitResu
 		};
 	}
 
-	const pushResult = await runGit(["push"], vaultPath);
+	const pushResult = await runGit(["push"], vaultPath, {timeoutMs: GIT_NETWORK_TIMEOUT_MS});
 	if (pushResult.exitCode === 0) {
 		return {
 			status: "created_and_pushed",

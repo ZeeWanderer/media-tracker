@@ -1,6 +1,7 @@
 import {App, TFile} from "obsidian";
-import {migrateMediaSnapshotToLatest, readMediaSchemaVersion, type MediaMigrationResult} from "./migrations";
-import {decodeLatestMediaSnapshot, encodeLatestMediaSnapshot, sanitizeLatestMediaSnapshot, validateLatestMediaSnapshot, type MediaValidationIssue} from "./validation";
+import type {MediaMigrationResult} from "./migrations";
+import {encodeLatestMediaSnapshot, type MediaValidationIssue} from "./validation";
+import {decodeAndValidateMediaSnapshot} from "./snapshotPipeline";
 
 export type MediaFrontmatterProcessResult = MediaMigrationResult & {
 	issues: MediaValidationIssue[];
@@ -27,26 +28,15 @@ function stableStringify(value: unknown): string {
 
 export function normalizeMediaFrontmatter(frontmatter: Record<string, unknown>): MediaFrontmatterProcessResult {
 	const before = stableStringify(frontmatter);
-	const fromVersion = readMediaSchemaVersion(frontmatter);
-	const decoded = decodeLatestMediaSnapshot(frontmatter);
-	const migration = migrateMediaSnapshotToLatest(fromVersion, decoded);
-	const latest = sanitizeLatestMediaSnapshot(migration.snapshot);
-	const issues = validateLatestMediaSnapshot(latest);
-	if (migration.unsupportedSourceVersion !== undefined) {
-		issues.push({
-			field: "mediaTrackerVersion",
-			message: `Schema v${migration.unsupportedSourceVersion} is not supported by this build.`,
-			level: "warning",
-		});
-	}
-	encodeLatestMediaSnapshot(latest, frontmatter);
+	const decoded = decodeAndValidateMediaSnapshot(frontmatter);
+	encodeLatestMediaSnapshot(decoded.snapshot, frontmatter);
 	const after = stableStringify(frontmatter);
 	return {
-		fromVersion: migration.fromVersion,
-		toVersion: migration.toVersion,
-		appliedVersions: migration.appliedVersions,
-		unsupportedSourceVersion: migration.unsupportedSourceVersion,
-		issues,
+		fromVersion: decoded.fromVersion,
+		toVersion: decoded.toVersion,
+		appliedVersions: decoded.appliedVersions,
+		unsupportedSourceVersion: decoded.unsupportedSourceVersion,
+		issues: decoded.issues,
 		changed: before !== after,
 	};
 }

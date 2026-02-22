@@ -17,6 +17,7 @@ import {
 	validateLatestMediaSnapshot,
 	type MediaValidationIssue,
 } from "./validation";
+import {decodeAndValidateMediaSnapshot} from "./snapshotPipeline";
 import {
 	cleanMediaFrontmatter,
 	normalizeMediaFrontmatter,
@@ -33,26 +34,7 @@ export type MediaSnapshotDecodeResult = MediaMigrationResult & {
 };
 
 export function decodeMediaSnapshot(frontmatter: Record<string, unknown>): MediaSnapshotDecodeResult {
-	const fromVersion = readMediaSchemaVersion(frontmatter);
-	const decoded = decodeLatestMediaSnapshot(frontmatter);
-	const migration = migrateMediaSnapshotToLatest(fromVersion, decoded);
-	const snapshot = sanitizeLatestMediaSnapshot(migration.snapshot);
-	const issues = validateLatestMediaSnapshot(snapshot);
-	if (migration.unsupportedSourceVersion !== undefined) {
-		issues.push({
-			field: "mediaTrackerVersion",
-			message: `Schema v${migration.unsupportedSourceVersion} is not supported by this build.`,
-			level: "warning",
-		});
-	}
-	return {
-		fromVersion: migration.fromVersion,
-		toVersion: migration.toVersion,
-		appliedVersions: migration.appliedVersions,
-		unsupportedSourceVersion: migration.unsupportedSourceVersion,
-		snapshot,
-		issues,
-	};
+	return decodeAndValidateMediaSnapshot(frontmatter);
 }
 
 export async function updateMediaFrontmatter(

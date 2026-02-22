@@ -606,6 +606,20 @@
 	text-overflow: ellipsis;
 }
 
+.media-tracker__update-entry-message-wrap {
+	display: grid;
+	gap: 2px;
+	min-width: 0;
+}
+
+.media-tracker__update-entry-attempts {
+	color: var(--text-faint);
+	font-size: 11px;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
 .media-tracker__update-entry--failed {
 	border: 1px solid var(--color-red);
 }

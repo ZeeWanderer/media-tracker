@@ -1,8 +1,9 @@
 import {ItemView, WorkspaceLeaf} from "obsidian";
 import type MediaTrackerPlugin from "../main";
 import {UpdateLogEntry, UpdateLogRun} from "../types";
+import {MEDIA_TRACKER_UPDATE_LOG_VIEW} from "./viewIds";
 
-export const MEDIA_TRACKER_UPDATE_LOG_VIEW = "media-tracker-update-log-view";
+export {MEDIA_TRACKER_UPDATE_LOG_VIEW};
 
 function formatDuration(durationMs: number): string {
 	const seconds = Math.round(durationMs / 100) / 10;
@@ -11,6 +12,16 @@ function formatDuration(durationMs: number): string {
 
 function formatStatus(value: string): string {
 	return value.replace("-", " ");
+}
+
+function formatProvider(value: string): string {
+	if (value === "anilist") {
+		return "AniList";
+	}
+	if (value === "tmdb") {
+		return "TMDB";
+	}
+	return value;
 }
 
 function sortEntriesByMostRecent(entries: UpdateLogEntry[]): UpdateLogEntry[] {
@@ -35,6 +46,15 @@ function resolveRunState(run: UpdateLogRun, inProgress: boolean): "in-progress" 
 		return "interrupted";
 	}
 	return "completed";
+}
+
+function formatAttemptSummary(entry: UpdateLogEntry): string | null {
+	if (!entry.attempts || entry.attempts.length <= 1) {
+		return null;
+	}
+	return entry.attempts
+		.map((attempt) => `${formatProvider(attempt.provider)} ${formatStatus(attempt.status)}: ${attempt.message}`)
+		.join(" | ");
 }
 
 export class MediaTrackerUpdateLogView extends ItemView {
@@ -135,10 +155,18 @@ export class MediaTrackerUpdateLogView extends ItemView {
 				text: `${entry.title} (${entry.provider})`,
 				cls: "media-tracker__update-entry-title",
 			});
-			row.createEl("span", {
+			const message = row.createDiv({cls: "media-tracker__update-entry-message-wrap"});
+			message.createEl("span", {
 				text: entry.message,
 				cls: "media-tracker__update-entry-message",
 			});
+			const attemptsSummary = formatAttemptSummary(entry);
+			if (attemptsSummary) {
+				message.createEl("span", {
+					text: attemptsSummary,
+					cls: "media-tracker__update-entry-attempts",
+				});
+			}
 		}
 	}
 }

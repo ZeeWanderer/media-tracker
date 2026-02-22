@@ -1,9 +1,12 @@
 import {App, TFile, TFolder} from "obsidian";
-import {MediaItem} from "../../types";
-import {MediaTrackerSettings} from "../../settings";
 import {MEDIA_STATUSES, MEDIA_TYPES, type MediaStatus} from "./config";
 import {decodeMediaSnapshot} from "./frontmatter";
 import {buildProgressDisplay} from "./progress";
+import type {MediaItem} from "./models";
+
+export type MediaReadQuery = {
+	mediaFolder: string;
+};
 
 function escapeRegex(value: string): string {
 	return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -126,8 +129,8 @@ function collectMarkdownFilesInFolder(root: TFolder): TFile[] {
 	return files;
 }
 
-export function listMediaItems(app: App, settings: MediaTrackerSettings): MediaItem[] {
-	const baseFolder = normalizeBaseFolderPath(settings.mediaFolder);
+export function listMediaItems(app: App, query: MediaReadQuery): MediaItem[] {
+	const baseFolder = normalizeBaseFolderPath(query.mediaFolder);
 	const root = app.vault.getAbstractFileByPath(baseFolder);
 	if (!(root instanceof TFolder)) {
 		return [];

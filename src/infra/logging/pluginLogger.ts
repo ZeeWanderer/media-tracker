@@ -1,4 +1,5 @@
 import {App, DataAdapter} from "obsidian";
+import {ensureAdapterDirectory} from "../storage/adapterPath";
 
 export type PluginLogLevel = "debug" | "info" | "warn" | "error";
 
@@ -48,18 +49,6 @@ function getLogFileName(date: Date): string {
 
 function getLogFilePath(app: App, pluginId: string, date: Date): string {
 	return `${getPluginLogDirectory(app, pluginId)}/${getLogFileName(date)}`;
-}
-
-async function ensureDirectory(adapter: DataAdapter, path: string): Promise<void> {
-	const parts = path.split("/").filter((part) => part.length);
-	let current = "";
-	for (const part of parts) {
-		current = current ? `${current}/${part}` : part;
-		const exists = await adapter.exists(current);
-		if (!exists) {
-			await adapter.mkdir(current);
-		}
-	}
 }
 
 function parseEntry(value: string): PluginLogEntry | null {
@@ -178,6 +167,13 @@ export class PluginLogger {
 		return LEVEL_VALUE[level] >= LEVEL_VALUE[this.level];
 	}
 
+	private appendRecentEntry(entry: PluginLogEntry) {
+		this.recentEntries.push(entry);
+		if (this.recentEntries.length > this.maxRecentEntries) {
+			this.recentEntries.splice(0, this.recentEntries.length - this.maxRecentEntries);
+		}
+	}
+
 	log(level: PluginLogLevel, scope: string, event: string, message: string, meta?: Record<string, unknown>) {
 		if (!this.enabled || !this.shouldLog(level)) {
 			return;
@@ -190,10 +186,7 @@ export class PluginLogger {
 			message,
 			meta: safeMeta(meta),
 		};
-		this.recentEntries.push(entry);
-		if (this.recentEntries.length > this.maxRecentEntries) {
-			this.recentEntries.splice(0, this.recentEntries.length - this.maxRecentEntries);
-		}
+		this.appendRecentEntry(entry);
 
 		this.queue.push(JSON.stringify(entry));
 		this.scheduleFlush();
@@ -214,26 +207,36 @@ export class PluginLogger {
 			return;
 		}
 		this.flushing = true;
-		const payload = `${this.queue.join("\n")}\n`;
-		this.queue = [];
+		const pending = [...this.queue];
+		const payload = `${pending.join("\n")}\n`;
 
 		try {
 			const directory = getPluginLogDirectory(this.app, this.pluginId);
-			await ensureDirectory(this.adapter, directory);
+			await ensureAdapterDirectory(this.adapter, directory);
 			const path = getLogFilePath(this.app, this.pluginId, new Date());
 			const exists = await this.adapter.exists(path);
-				if (exists) {
-					await this.adapter.append(path, payload);
-				} else {
-					await this.adapter.write(path, payload);
+			if (exists) {
+				await this.adapter.append(path, payload);
+			} else {
+				await this.adapter.write(path, payload);
 				}
+				this.queue.splice(0, pending.length);
 				await this.maybeCleanupOldLogFiles();
 			} catch (error) {
-				console.error(error);
+				this.appendRecentEntry({
+					timestamp: Date.now(),
+					level: "error",
+					scope: "logger",
+					event: "flush_failed",
+					message: "Failed to flush plugin log queue.",
+					meta: safeMeta({
+						error: error instanceof Error ? error.message : String(error),
+					}),
+				});
 			} finally {
-			this.flushing = false;
-			if (this.queue.length) {
-				this.scheduleFlush();
+				this.flushing = false;
+				if (this.queue.length) {
+					this.scheduleFlush();
 			}
 		}
 	}

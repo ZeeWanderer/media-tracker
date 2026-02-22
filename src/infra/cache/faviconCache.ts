@@ -1,6 +1,7 @@
 import {App, DataAdapter} from "obsidian";
 import {httpRequest} from "../network/httpClient";
 import {getFaviconCacheKey as getDomainFaviconCacheKey} from "../../domain/media/links";
+import {ensureAdapterDirectory} from "../storage/adapterPath";
 
 const FAVICON_CACHE_VERSION = 1;
 const FAVICON_CACHE_DIR = "cache/favicons";
@@ -124,18 +125,6 @@ function getIndexPath(app: App, pluginId: string): string {
 
 function getCacheFilePath(app: App, pluginId: string, fileName: string): string {
 	return `${getCacheDirectory(app, pluginId)}/${fileName}`;
-}
-
-async function ensureDirectory(adapter: DataAdapter, path: string): Promise<void> {
-	const parts = path.split("/").filter((part) => part.length);
-	let current = "";
-	for (const part of parts) {
-		current = current ? `${current}/${part}` : part;
-		const exists = await adapter.exists(current);
-		if (!exists) {
-			await adapter.mkdir(current);
-		}
-	}
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -383,7 +372,7 @@ export class DesktopFaviconCache {
 			const contentType = normalizeContentType(responseContentType);
 			const fileName = getDiskFileName(origin, contentType);
 			const cacheDir = getCacheDirectory(this.app, this.pluginId);
-			await ensureDirectory(this.adapter, cacheDir);
+			await ensureAdapterDirectory(this.adapter, cacheDir);
 			const filePath = getCacheFilePath(this.app, this.pluginId, fileName);
 			await this.adapter.writeBinary(filePath, buffer);
 
@@ -452,7 +441,7 @@ export class DesktopFaviconCache {
 	private async saveDiskIndex(index: FaviconDiskIndex): Promise<void> {
 		this.diskIndex = index;
 		const cacheDir = getCacheDirectory(this.app, this.pluginId);
-		await ensureDirectory(this.adapter, cacheDir);
+		await ensureAdapterDirectory(this.adapter, cacheDir);
 		const path = getIndexPath(this.app, this.pluginId);
 		const raw = JSON.stringify(index);
 		await this.adapter.write(path, raw);

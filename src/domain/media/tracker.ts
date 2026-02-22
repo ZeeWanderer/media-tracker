@@ -1,6 +1,6 @@
-import {MediaItem} from "../../types";
 import {ANILIST_TYPES, NOVEL_PROGRESS_TYPES, SEASON_EPISODE_TYPES, TMDB_TYPES} from "./config";
 import {incrementProgressNumericString, parseChapterProgressValue, parseMangaProgress, type MangaProgress} from "./progress";
+import type {MediaItem} from "./models";
 
 export type TrackerComputationItem = Pick<
 	MediaItem,

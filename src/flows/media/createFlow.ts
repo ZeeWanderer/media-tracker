@@ -1,5 +1,5 @@
-import {App, Notice, TFile, TFolder} from "obsidian";
-import {MediaTrackerSettings} from "../../settings";
+import {App, TFile, TFolder} from "obsidian";
+import {MediaTrackerSettings} from "../../core/pluginSettingsModel";
 import {MediaItem, MediaType, NewMediaDraft} from "../../types";
 import {ANILIST_TYPES, IMDB_TYPES} from "../../domain/media/config";
 import {sanitizeMediaFileName, sanitizeNewMediaDraft} from "../../domain/media/draft";
@@ -103,6 +103,28 @@ export function sanitizeMediaDraft(draft: NewMediaDraft): NewMediaDraft {
 	return sanitizeNewMediaDraft(draft);
 }
 
+export type CreateMediaNoteResult =
+	| {
+		status: "created";
+		file: TFile;
+		disambiguated: boolean;
+		workFolder: string;
+		fileName: string;
+	}
+	| {
+		status: "rejected";
+		reason: "missing_title";
+	}
+	| {
+		status: "rejected";
+		reason: "id_conflict";
+		conflict: {
+			kind: "imdb" | "anilist";
+			value: string;
+			item: MediaItem;
+		};
+	};
+
 function parseOptionalInteger(value: string | undefined): number | undefined {
 	if (!value) {
 		return undefined;
@@ -170,7 +192,7 @@ export async function createMediaNoteFromDraft(
 	app: App,
 	settings: MediaTrackerSettings,
 	draft: NewMediaDraft,
-): Promise<boolean> {
+): Promise<CreateMediaNoteResult> {
 	const normalizedDraft = sanitizeNewMediaDraft(draft);
 	const baseFolder = settings.mediaFolder.trim() || "Media";
 	await ensureFolder(app, baseFolder);
@@ -180,15 +202,19 @@ export async function createMediaNoteFromDraft(
 	const draftAnilistId = resolveDraftAnilistId(normalizedDraft);
 	const idConflict = findConflictingIdItem(existingItems, draftImdbId, draftAnilistId);
 	if (idConflict) {
-		const idLabel = idConflict.kind === "imdb" ? "IMDb ID" : "AniList ID";
-		new Notice(`${idLabel} ${idConflict.value} already exists in "${idConflict.item.title}" (${idConflict.item.file.path}).`);
-		return false;
+		return {
+			status: "rejected",
+			reason: "id_conflict",
+			conflict: idConflict,
+		};
 	}
 
 	const safeName = sanitizeMediaFileName(normalizedDraft.title);
 	if (!safeName.length) {
-		new Notice("Please enter a title.");
-		return false;
+		return {
+			status: "rejected",
+			reason: "missing_title",
+		};
 	}
 
 	const {workFolder, filePath, disambiguated, fileName} = resolveCreationPaths(app, baseFolder, safeName, normalizedDraft.type);
@@ -196,10 +222,11 @@ export async function createMediaNoteFromDraft(
 	await ensureFolder(app, workFolder);
 
 	const file = await applyDraftFrontmatter(app, filePath, normalizedDraft);
-	if (disambiguated) {
-		new Notice(`Created as "${workFolder}/${fileName}" because this title/type already existed.`);
-	}
-	const leaf = app.workspace.getLeaf("tab");
-	await leaf.openFile(file);
-	return true;
+	return {
+		status: "created",
+		file,
+		disambiguated,
+		workFolder,
+		fileName,
+	};
 }

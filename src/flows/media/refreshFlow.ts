@@ -1,6 +1,6 @@
 import {App} from "obsidian";
-import {MediaTrackerSettings} from "../../settings";
-import {MediaItem, UpdateLogEntry, UpdateLogRun, UpdateProvider} from "../../types";
+import {MediaTrackerSettings} from "../../core/pluginSettingsModel";
+import {MediaItem, UpdateLogAttempt, UpdateLogEntry, UpdateLogRun, UpdateProvider} from "../../types";
 import {ANILIST_TYPES, TMDB_TYPES} from "../../domain/media/config";
 import {getImdbIdFromLinks} from "../../domain/media/links";
 import {AniListRefreshResult, refreshAniListLatest} from "./providers/anilistProviderFlow";
@@ -11,6 +11,7 @@ type RefreshItemResult = {
 	status: UpdateLogEntry["status"];
 	message: string;
 	providersChecked: RefreshQueue[];
+	attempts: UpdateLogAttempt[];
 };
 
 type RefreshQueue = "anilist" | "tmdb";
@@ -29,6 +30,15 @@ function toEntry(item: MediaItem, result: RefreshItemResult): UpdateLogEntry {
 		provider: result.provider,
 		status: result.status,
 		message: result.message,
+		attempts: result.attempts.length ? [...result.attempts] : undefined,
+	};
+}
+
+function toAttempt(result: AniListRefreshResult | TmdbRefreshResult): UpdateLogAttempt {
+	return {
+		provider: result.provider,
+		status: result.status,
+		message: result.message,
 	};
 }
 
@@ -38,6 +48,7 @@ function mapProviderResult(result: AniListRefreshResult | TmdbRefreshResult): Re
 		status: result.status,
 		message: result.message,
 		providersChecked: [result.provider],
+		attempts: [toAttempt(result)],
 	};
 }
 
@@ -53,11 +64,19 @@ function getRefreshQueue(item: MediaItem): RefreshQueue | null {
 
 function toUnexpectedFailure(queue: RefreshQueue, error: unknown): RefreshItemResult {
 	const detail = error instanceof Error ? error.message : String(error);
+	const message = `Unexpected refresh error: ${detail}`;
 	return {
 		provider: queue,
 		status: "failed",
-		message: `Unexpected refresh error: ${detail}`,
+		message,
 		providersChecked: [queue],
+		attempts: [
+			{
+				provider: queue,
+				status: "failed",
+				message,
+			},
+		],
 	};
 }
 
@@ -111,10 +130,11 @@ export async function refreshTrackedMediaLatest(
 		const aniListResult = await refreshAniListLatest(app, item, anilistMinDelayMs);
 		const hasTmdbIdentity = Boolean(item.tmdbId || item.imdbId || getImdbIdFromLinks(item.links ?? []));
 		if (aniListResult.status === "failed" && TMDB_TYPES.has(item.type) && hasTmdbIdentity) {
-			const result = mapProviderResult(await refreshTmdbSeriesLatest(app, settings, item, tmdbMinDelayMs));
+			const fallback = mapProviderResult(await refreshTmdbSeriesLatest(app, settings, item, tmdbMinDelayMs));
 			return {
-				...result,
+				...fallback,
 				providersChecked: ["anilist", "tmdb"],
+				attempts: [toAttempt(aniListResult), ...fallback.attempts],
 			};
 		}
 		const result = mapProviderResult(aniListResult);
@@ -135,6 +155,7 @@ export async function refreshTrackedMediaLatest(
 		status: "skipped",
 		message: `No refresh provider for ${item.type}.`,
 		providersChecked: [],
+		attempts: [],
 	};
 }
 

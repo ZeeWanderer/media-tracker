@@ -1,8 +1,9 @@
 import {ItemView, Notice, WorkspaceLeaf} from "obsidian";
 import type MediaTrackerPlugin from "../main";
 import type {PluginLogEntry} from "../infra/logging/pluginLogger";
+import {MEDIA_TRACKER_PLUGIN_LOG_VIEW} from "./viewIds";
 
-export const MEDIA_TRACKER_PLUGIN_LOG_VIEW = "media-tracker-plugin-log-view";
+export {MEDIA_TRACKER_PLUGIN_LOG_VIEW};
 
 function formatTimestamp(value: number): string {
 	return new Date(value).toLocaleString();
