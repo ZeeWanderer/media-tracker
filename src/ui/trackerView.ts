@@ -1,4 +1,4 @@
-import {App, ItemView, Notice, WorkspaceLeaf} from "obsidian";
+import {App, ItemView, Notice, TAbstractFile, WorkspaceLeaf} from "obsidian";
 import {NewMediaModal} from "./newMediaModal";
 import {
 	normalizeAllMediaNoteFrontmatter,
@@ -29,10 +29,14 @@ import type {MediaItem} from "../domain/media/models";
 import type {UpdateLogRun} from "../core/updateTypes";
 import {renderTrackerControls} from "./trackerViewControls";
 import type {SortDirection, SortKey} from "./trackerRenderTypes";
+import {normalizeMediaFolder} from "../core/pluginSettings";
+import {getPluginCacheDirectory, getPluginLogsDirectory, getPluginRootPath} from "../infra/storage/pluginPaths";
+import {joinVaultRelativePath, normalizeVaultPathForCompare} from "../pathUtils";
 export {MEDIA_TRACKER_VIEW};
 
 const SEARCH_RENDER_DEBOUNCE_MS = 120;
 const ICON_REFRESH_DEBOUNCE_MS = 160;
+const COMMIT_SCOPE_REFRESH_DEBOUNCE_MS = 220;
 const MAX_ICON_PREFETCH_ITEMS = 200;
 
 type TrackerViewPluginDeps = {
@@ -66,6 +70,7 @@ export class MediaTrackerView extends ItemView {
 	private visibleItems: MediaItem[] = [];
 	private searchRenderTimer: number | null = null;
 	private iconRefreshTimer: number | null = null;
+	private commitScopeRefreshTimer: number | null = null;
 
 	constructor(leaf: WorkspaceLeaf, plugin: TrackerViewPluginDeps) {
 		super(leaf);
@@ -121,12 +126,20 @@ export class MediaTrackerView extends ItemView {
 	}
 
 	async onOpen() {
+		this.registerEvent(this.app.vault.on("modify", (file) => this.onCommitScopeMutation(file)));
+		this.registerEvent(this.app.vault.on("create", (file) => this.onCommitScopeMutation(file)));
+		this.registerEvent(this.app.vault.on("delete", (file) => this.onCommitScopeMutation(file)));
+		this.registerEvent(this.app.vault.on("rename", (file, oldPath) => {
+			this.onCommitScopeMutation(file);
+			this.onCommitScopePath(oldPath);
+		}));
 		this.requestRender();
 	}
 
 	async onClose() {
 		this.cancelSearchRenderTimer();
 		this.cancelIconRefreshTimer();
+		this.cancelCommitScopeRefreshTimer();
 	}
 
 	invalidateItemsCache() {
@@ -203,6 +216,55 @@ export class MediaTrackerView extends ItemView {
 			this.iconRefreshTimer = null;
 			void this.ensureVisibleIcons();
 		}, ICON_REFRESH_DEBOUNCE_MS);
+	}
+
+	private cancelCommitScopeRefreshTimer() {
+		if (this.commitScopeRefreshTimer !== null) {
+			window.clearTimeout(this.commitScopeRefreshTimer);
+			this.commitScopeRefreshTimer = null;
+		}
+	}
+
+	private scheduleCommitScopeRefresh() {
+		this.cancelCommitScopeRefreshTimer();
+		this.commitScopeRefreshTimer = window.setTimeout(() => {
+			this.commitScopeRefreshTimer = null;
+			this.gitService.invalidateScopedChangesState();
+			this.requestRender();
+		}, COMMIT_SCOPE_REFRESH_DEBOUNCE_MS);
+	}
+
+	private onCommitScopeMutation(file: TAbstractFile) {
+		this.onCommitScopePath(file.path);
+	}
+
+	private onCommitScopePath(path: string) {
+		if (!this.isPathInCommitScope(path)) {
+			return;
+		}
+		this.scheduleCommitScopeRefresh();
+	}
+
+	private isPathInCommitScope(path: string): boolean {
+		const normalizedPath = normalizeVaultPathForCompare(path);
+		const mediaRoot = normalizeVaultPathForCompare(normalizeMediaFolder(this.plugin.settings.mediaFolder));
+		const pluginRoot = normalizeVaultPathForCompare(getPluginRootPath(this.app, this.plugin.manifest.id));
+		const pluginCacheRoot = normalizeVaultPathForCompare(getPluginCacheDirectory(this.app, this.plugin.manifest.id));
+		const pluginLogsRoot = normalizeVaultPathForCompare(getPluginLogsDirectory(this.app, this.plugin.manifest.id));
+		const workspacePath = normalizeVaultPathForCompare(
+			joinVaultRelativePath(this.app.vault.configDir, "workspace.json"),
+		);
+		if (this.isPathInScope(normalizedPath, pluginCacheRoot) || this.isPathInScope(normalizedPath, pluginLogsRoot)) {
+			return false;
+		}
+		if (normalizedPath === workspacePath) {
+			return true;
+		}
+		return this.isPathInScope(normalizedPath, mediaRoot) || this.isPathInScope(normalizedPath, pluginRoot);
+	}
+
+	private isPathInScope(path: string, scopeRoot: string): boolean {
+		return path === scopeRoot || path.startsWith(`${scopeRoot}/`);
 	}
 
 	render() {
