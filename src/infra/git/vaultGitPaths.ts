@@ -1,7 +1,7 @@
 import {App, FileSystemAdapter} from "obsidian";
 import * as path from "path";
 import {getPluginCacheDirectory, getPluginLogsDirectory, getPluginRootPath} from "../storage/pluginPaths";
-import {normalizeVaultRelativePath} from "../../pathUtils";
+import {joinVaultRelativePath, normalizeVaultRelativePath} from "../../pathUtils";
 
 export type RepoScopePath = {
 	repoRelativePath: string;
@@ -72,7 +72,8 @@ export function resolveCommitScopePaths(
 ): RepoScopePath[] {
 	const normalizedMediaFolder = normalizeVaultRelativePath(mediaFolder) || "Media";
 	const pluginRoot = normalizeVaultRelativePath(getPluginRootPath(app, pluginId));
-	const candidates = [normalizedMediaFolder, pluginRoot];
+	const workspacePath = joinVaultRelativePath(normalizeVaultRelativePath(app.vault.configDir), "workspace.json");
+	const candidates = [normalizedMediaFolder, pluginRoot, workspacePath];
 	const paths = new Map<string, RepoScopePath>();
 	for (const candidate of candidates) {
 		const resolved = resolveRepoScopePath(vaultPath, repoRoot, candidate);

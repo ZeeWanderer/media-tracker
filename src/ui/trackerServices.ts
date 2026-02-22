@@ -1,5 +1,10 @@
 import {App} from "obsidian";
-import {createVaultUpdateCommit, isVaultGitRepository, type VaultCommitResult} from "../infra/git/vaultGit";
+import {
+	createVaultUpdateCommit,
+	getVaultUpdateCommitChangeState,
+	isVaultGitRepository,
+	type VaultCommitResult,
+} from "../infra/git/vaultGit";
 import {getAnilistUrl, getFaviconCacheKey, getKnownIconAsset, KNOWN_ICON_BASES} from "../domain/media/links";
 import {getPluginAssetsDirectory} from "../infra/storage/pluginPaths";
 import type {DesktopFaviconCache} from "../infra/cache/faviconCache";
@@ -14,6 +19,8 @@ type TrackerGitServiceDeps = {
 	onStateChange: () => void;
 };
 
+const COMMIT_CHANGES_REFRESH_INTERVAL_MS = 1_200;
+
 type TrackerIconServiceDeps = {
 	app: App;
 	pluginId: string;
@@ -24,6 +31,11 @@ type TrackerIconServiceDeps = {
 export class TrackerGitService {
 	private repository: boolean | null = null;
 	private repositoryPromise: Promise<void> | null = null;
+	private hasScopedChanges: boolean | null = null;
+	private scopedChangesPromise: Promise<void> | null = null;
+	private scopedChangesScopeKey: string | null = null;
+	private lastScopedChangesCheck = 0;
+	private scopedChangesVersion = 0;
 	private creatingCommit = false;
 
 	constructor(private readonly deps: TrackerGitServiceDeps) {}
@@ -36,8 +48,17 @@ export class TrackerGitService {
 		return this.creatingCommit;
 	}
 
+	get commitChangesKnown(): boolean {
+		return this.hasScopedChanges !== null;
+	}
+
+	get hasCommitEligibleChanges(): boolean {
+		return this.hasScopedChanges === true;
+	}
+
 	markNotRepository() {
 		this.repository = false;
+		this.resetScopedChangesState();
 		this.deps.onStateChange();
 	}
 
@@ -53,9 +74,75 @@ export class TrackerGitService {
 					error: error instanceof Error ? error.message : String(error),
 				});
 				this.repository = false;
+				this.resetScopedChangesState();
 			})
 			.finally(() => {
 				this.repositoryPromise = null;
+				this.deps.onStateChange();
+			});
+	}
+
+	invalidateScopedChangesState() {
+		this.resetScopedChangesState();
+	}
+
+	ensureScopedChangesState() {
+		if (this.repository !== true || this.creatingCommit) {
+			return;
+		}
+		this.invalidateScopedChangesForScopeChange();
+		if (this.scopedChangesPromise) {
+			return;
+		}
+		const now = Date.now();
+		const hasRecentSnapshot = this.hasScopedChanges !== null
+			&& (now - this.lastScopedChangesCheck) < COMMIT_CHANGES_REFRESH_INTERVAL_MS;
+		if (hasRecentSnapshot) {
+			return;
+		}
+
+		const scopeCheckVersion = this.scopedChangesVersion;
+		this.scopedChangesPromise = (async () => {
+			const result = await getVaultUpdateCommitChangeState(this.deps.app, {
+				mediaFolder: this.deps.getMediaFolder(),
+				pluginId: this.deps.pluginId,
+			});
+			if (this.scopedChangesVersion !== scopeCheckVersion) {
+				return;
+			}
+			switch (result.status) {
+				case "has_changes":
+					this.hasScopedChanges = true;
+					break;
+				case "no_changes":
+					this.hasScopedChanges = false;
+					break;
+				case "not_repo":
+					this.repository = false;
+					this.hasScopedChanges = null;
+					break;
+				case "git_missing":
+				case "failed":
+				default:
+					this.hasScopedChanges = null;
+					break;
+			}
+		})()
+			.catch((error: unknown) => {
+				if (this.scopedChangesVersion !== scopeCheckVersion) {
+					return;
+				}
+				this.deps.logger?.error("git", "commit_scope_check_failed", "Failed to check scoped git changes.", {
+					error: error instanceof Error ? error.message : String(error),
+				});
+				this.hasScopedChanges = null;
+			})
+			.finally(() => {
+				if (this.scopedChangesVersion !== scopeCheckVersion) {
+					return;
+				}
+				this.lastScopedChangesCheck = Date.now();
+				this.scopedChangesPromise = null;
 				this.deps.onStateChange();
 			});
 	}
@@ -65,16 +152,56 @@ export class TrackerGitService {
 			return null;
 		}
 		this.creatingCommit = true;
+		this.resetScopedChangesState();
 		this.deps.onStateChange();
 		try {
-			return await createVaultUpdateCommit(this.deps.app, {
+			const result = await createVaultUpdateCommit(this.deps.app, {
 				mediaFolder: this.deps.getMediaFolder(),
 				pluginId: this.deps.pluginId,
 			});
+			switch (result.status) {
+				case "created_and_pushed":
+				case "created_push_failed":
+				case "no_changes":
+					this.hasScopedChanges = false;
+					this.lastScopedChangesCheck = Date.now();
+					break;
+				case "not_repo":
+					this.repository = false;
+					this.resetScopedChangesState();
+					break;
+				case "git_missing":
+				case "needs_pull":
+				case "failed":
+				default:
+					this.resetScopedChangesState();
+					break;
+			}
+			return result;
 		} finally {
 			this.creatingCommit = false;
 			this.deps.onStateChange();
 		}
+	}
+
+	private getScopeKey(): string {
+		return this.deps.getMediaFolder();
+	}
+
+	private invalidateScopedChangesForScopeChange() {
+		const scopeKey = this.getScopeKey();
+		if (this.scopedChangesScopeKey === scopeKey) {
+			return;
+		}
+		this.scopedChangesScopeKey = scopeKey;
+		this.resetScopedChangesState();
+	}
+
+	private resetScopedChangesState() {
+		this.scopedChangesVersion += 1;
+		this.hasScopedChanges = null;
+		this.scopedChangesPromise = null;
+		this.lastScopedChangesCheck = 0;
 	}
 }
 

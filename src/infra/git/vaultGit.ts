@@ -29,10 +29,53 @@ export type VaultCommitResult = {
 	commitMessage?: string;
 };
 
+type VaultCommitChangeStatus =
+	| "has_changes"
+	| "no_changes"
+	| "not_repo"
+	| "git_missing"
+	| "failed";
+
+export type VaultCommitChangeResult = {
+	status: VaultCommitChangeStatus;
+	message: string;
+};
+
 export type VaultCommitScope = {
 	mediaFolder: string;
 	pluginId: string;
 };
+
+async function resolveScopedPathspecs(
+	app: App,
+	vaultPath: string,
+	repoRoot: string,
+	scope: VaultCommitScope,
+): Promise<string[]> {
+	const scopeCandidates = resolveCommitScopePaths(
+		app,
+		vaultPath,
+		repoRoot,
+		scope.mediaFolder,
+		scope.pluginId,
+	);
+	const scopePathspecs: string[] = [];
+	for (const candidate of scopeCandidates) {
+		if (fs.existsSync(candidate.absolutePath)) {
+			scopePathspecs.push(candidate.repoRelativePath);
+			continue;
+		}
+		const trackedResult = await runGit(
+			["ls-files", "--error-unmatch", "--", candidate.repoRelativePath],
+			vaultPath,
+			{timeoutMs: GIT_FAST_TIMEOUT_MS},
+		);
+		if (trackedResult.exitCode === 0) {
+			scopePathspecs.push(candidate.repoRelativePath);
+		}
+	}
+	return scopePathspecs;
+}
 
 function padTwo(value: number): string {
 	return String(value).padStart(2, "0");
@@ -57,6 +100,47 @@ export async function isVaultGitRepository(app: App): Promise<boolean> {
 	return contextResult.ok;
 }
 
+export async function getVaultUpdateCommitChangeState(
+	app: App,
+	scope: VaultCommitScope,
+): Promise<VaultCommitChangeResult> {
+	const contextResult = await resolveVaultGitRepoContext(app);
+	if (!contextResult.ok) {
+		return {
+			status: contextResult.failure.status,
+			message: contextResult.failure.message,
+		};
+	}
+	const {vaultPath, repoRoot} = contextResult.context;
+	const scopePathspecs = await resolveScopedPathspecs(app, vaultPath, repoRoot, scope);
+	if (!scopePathspecs.length) {
+		return {
+			status: "failed",
+			message: "No commit scope paths inside the repository scope were found.",
+		};
+	}
+
+	const statusResult = await runGit(
+		["status", "--porcelain", "--", ...scopePathspecs],
+		vaultPath,
+		{timeoutMs: GIT_FAST_TIMEOUT_MS},
+	);
+	if (statusResult.exitCode !== 0) {
+		return {
+			status: "failed",
+			message: summarizeGitError(statusResult),
+		};
+	}
+
+	const hasChanges = statusResult.stdout.trim().length > 0;
+	return {
+		status: hasChanges ? "has_changes" : "no_changes",
+		message: hasChanges
+			? "Scoped changes are available to commit."
+			: "No scoped changes to commit.",
+	};
+}
+
 export async function createVaultUpdateCommit(
 	app: App,
 	scope: VaultCommitScope,
@@ -70,32 +154,11 @@ export async function createVaultUpdateCommit(
 	}
 	const {vaultPath, repoRoot} = contextResult.context;
 
-	const scopeCandidates = resolveCommitScopePaths(
-		app,
-		vaultPath,
-		repoRoot,
-		scope.mediaFolder,
-		scope.pluginId,
-	);
-	const scopePathspecs: string[] = [];
-	for (const candidate of scopeCandidates) {
-		if (fs.existsSync(candidate.absolutePath)) {
-			scopePathspecs.push(candidate.repoRelativePath);
-			continue;
-		}
-		const trackedResult = await runGit(
-			["ls-files", "--error-unmatch", "--", candidate.repoRelativePath],
-			vaultPath,
-			{timeoutMs: GIT_FAST_TIMEOUT_MS},
-		);
-		if (trackedResult.exitCode === 0) {
-			scopePathspecs.push(candidate.repoRelativePath);
-		}
-	}
+	const scopePathspecs = await resolveScopedPathspecs(app, vaultPath, repoRoot, scope);
 	if (!scopePathspecs.length) {
 		return {
 			status: "failed",
-			message: "No media/plugin paths inside the repository scope were found.",
+			message: "No commit scope paths inside the repository scope were found.",
 		};
 	}
 
@@ -159,7 +222,7 @@ export async function createVaultUpdateCommit(
 	if (diffResult.exitCode === 0) {
 		return {
 			status: "no_changes",
-			message: "No media/plugin changes to commit.",
+			message: "No scoped changes to commit.",
 		};
 	}
 	if (diffResult.exitCode !== 1) {
@@ -180,7 +243,7 @@ export async function createVaultUpdateCommit(
 		if (output.includes("nothing to commit")) {
 			return {
 				status: "no_changes",
-				message: "No media/plugin changes to commit.",
+				message: "No scoped changes to commit.",
 			};
 		}
 		return {

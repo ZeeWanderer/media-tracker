@@ -73,7 +73,7 @@ export async function ensurePluginGitignoreEntries(
 	if (!missing.length) {
 		return {
 			status: "already_up_to_date",
-			message: `.gitignore already includes plugin cache/log entries (${gitignorePath}).`,
+			message: `.gitignore already includes Media Tracker ignore entries (${gitignorePath}).`,
 			gitignorePath,
 			addedEntries: [],
 		};

@@ -131,6 +131,7 @@ export class MediaTrackerView extends ItemView {
 
 	invalidateItemsCache() {
 		this.trackedItemsCacheDirty = true;
+		this.gitService.invalidateScopedChangesState();
 	}
 
 	private getTrackedItems(): MediaItem[] {
@@ -161,6 +162,7 @@ export class MediaTrackerView extends ItemView {
 	requestRender() {
 		this.render();
 		this.gitService.ensureRepositoryState();
+		this.gitService.ensureScopedChangesState();
 		this.scheduleVisibleIconsRefresh();
 	}
 
@@ -272,18 +274,25 @@ export class MediaTrackerView extends ItemView {
 			const commitButton = actions.createEl("button", {cls: "media-tracker__button media-tracker__icon-button media-tracker__commit-button"});
 			commitButton.type = "button";
 			commitButton.setAttr("aria-label", "Create and push git commit");
-			commitButton.setAttr("title", "Create and push commit: [update] <datetime>");
 			commitButton.appendChild(createGitCommitIcon());
-			if (this.gitService.isCreatingCommit) {
+			const noCommitChanges = this.gitService.commitChangesKnown && !this.gitService.hasCommitEligibleChanges;
+			const commitDisabled = this.gitService.isCreatingCommit || noCommitChanges;
+			commitButton.setAttr(
+				"title",
+				noCommitChanges
+					? "No scoped changes to commit."
+					: "Create and push commit: [update] <datetime>",
+			);
+			if (commitDisabled) {
 				commitButton.disabled = true;
 				commitButton.addClass("is-disabled");
-				}
-				commitButton.addEventListener("click", () => {
-					void this.runTask(async () => {
-						await this.createGitCommit();
-					}, "Failed to create git commit.");
-				});
 			}
+			commitButton.addEventListener("click", () => {
+				void this.runTask(async () => {
+					await this.createGitCommit();
+				}, "Failed to create git commit.");
+			});
+		}
 		const addButton = actions.createEl("button", {cls: "media-tracker__button", text: "New entry"});
 		addButton.addEventListener("click", () => new NewMediaModal(this.plugin).open());
 
