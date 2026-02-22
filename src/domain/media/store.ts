@@ -4,9 +4,29 @@ import {decodeLatestMediaSnapshot, encodeLatestMediaSnapshot, sanitizeLatestMedi
 
 export type MediaFrontmatterProcessResult = MediaMigrationResult & {
 	issues: MediaValidationIssue[];
+	changed: boolean;
 };
 
+function stableNormalize(value: unknown): unknown {
+	if (Array.isArray(value)) {
+		return value.map((entry) => stableNormalize(entry));
+	}
+	if (value && typeof value === "object") {
+		const normalized: Record<string, unknown> = {};
+		for (const key of Object.keys(value as Record<string, unknown>).sort()) {
+			normalized[key] = stableNormalize((value as Record<string, unknown>)[key]);
+		}
+		return normalized;
+	}
+	return value;
+}
+
+function stableStringify(value: unknown): string {
+	return JSON.stringify(stableNormalize(value));
+}
+
 export function normalizeMediaFrontmatter(frontmatter: Record<string, unknown>): MediaFrontmatterProcessResult {
+	const before = stableStringify(frontmatter);
 	const fromVersion = readMediaSchemaVersion(frontmatter);
 	const decoded = decodeLatestMediaSnapshot(frontmatter);
 	const migration = migrateMediaSnapshotToLatest(fromVersion, decoded);
@@ -20,12 +40,14 @@ export function normalizeMediaFrontmatter(frontmatter: Record<string, unknown>):
 		});
 	}
 	encodeLatestMediaSnapshot(latest, frontmatter);
+	const after = stableStringify(frontmatter);
 	return {
 		fromVersion: migration.fromVersion,
 		toVersion: migration.toVersion,
 		appliedVersions: migration.appliedVersions,
 		unsupportedSourceVersion: migration.unsupportedSourceVersion,
 		issues,
+		changed: before !== after,
 	};
 }
 

@@ -1,6 +1,15 @@
 import {collectLinks, getAnilistIdFromFrontmatter, getAnilistIdFromLinks, getImdbIdFromFrontmatter, getImdbIdFromLinks, normalizeLinks, setLinks} from "./links";
-import type {MediaStatus, MediaType} from "../../types";
-import {CURRENT_MEDIA_SCHEMA_VERSION, MEDIA_SCHEMA_VERSION_KEY, MEDIA_STATUS_SET, MEDIA_TYPE_SET, type LatestMediaSnapshot} from "./schema";
+import type {MediaStatus, MediaType} from "./config";
+import {
+	CURRENT_MEDIA_SCHEMA_VERSION,
+	MEDIA_FRONTMATTER_SCHEMA,
+	MEDIA_SCHEMA_VERSION_KEY,
+	MEDIA_STATUS_SET,
+	MEDIA_TYPE_SET,
+	type LatestMediaSnapshot,
+	type MediaFrontmatterFieldKind,
+	type MediaFrontmatterFieldSchema,
+} from "./schema";
 
 export type MediaValidationIssue = {
 	field: string;
@@ -64,6 +73,112 @@ function parseNumberRecord(value: unknown): Record<string, number> | undefined {
 	return Object.fromEntries(entries.map(([key, item]) => [String(Number(key)), Number(item)]));
 }
 
+function parseStringArray(value: unknown): string[] | undefined {
+	if (!Array.isArray(value)) {
+		return undefined;
+	}
+	const normalized = value
+		.map((entry) => toTrimmedString(entry))
+		.filter((entry): entry is string => entry !== undefined);
+	if (!normalized.length) {
+		return undefined;
+	}
+	return normalized;
+}
+
+function parseNumberArray(value: unknown): number[] | undefined {
+	if (!Array.isArray(value)) {
+		return undefined;
+	}
+	const normalized = value
+		.map((entry) => toFiniteInteger(entry))
+		.filter((entry): entry is number => entry !== undefined);
+	if (!normalized.length) {
+		return undefined;
+	}
+	return normalized;
+}
+
+function parseFieldValueByKind(kind: MediaFrontmatterFieldKind, value: unknown): unknown {
+	switch (kind) {
+		case "string":
+			return toTrimmedString(value);
+		case "number":
+			return toFiniteInteger(value);
+		case "string-array":
+			return parseStringArray(value);
+		case "number-array":
+			return parseNumberArray(value);
+		case "number-record":
+			return parseNumberRecord(value);
+		default:
+			return undefined;
+	}
+}
+
+function serializeFieldValueByKind(kind: MediaFrontmatterFieldKind, value: unknown): unknown {
+	switch (kind) {
+		case "string":
+			return toTrimmedString(value);
+		case "number":
+			return toFiniteInteger(value);
+		case "string-array":
+			return parseStringArray(value);
+		case "number-array":
+			return parseNumberArray(value);
+		case "number-record": {
+			const parsed = parseNumberRecord(value);
+			if (!parsed || !Object.keys(parsed).length) {
+				return undefined;
+			}
+			return JSON.stringify(parsed);
+		}
+		default:
+			return undefined;
+	}
+}
+
+function setOptionalField(frontmatter: Record<string, unknown>, key: string, value: unknown) {
+	if (value === undefined) {
+		if (key in frontmatter) {
+			delete frontmatter[key];
+		}
+		return;
+	}
+	frontmatter[key] = value;
+}
+
+const SPECIAL_FIELD_KEYS = new Set([
+	"type",
+	"status",
+	"links",
+	"imdbId",
+	"anilistId",
+	"anilistIds",
+]);
+
+function getSchemaFieldEntries(): Array<[string, MediaFrontmatterFieldSchema]> {
+	return Object.entries(MEDIA_FRONTMATTER_SCHEMA.fields);
+}
+
+function snapshotToRecord(snapshot: LatestMediaSnapshot): Record<string, unknown> {
+	return snapshot as unknown as Record<string, unknown>;
+}
+
+function decodeSchemaFields(frontmatter: Record<string, unknown>): Record<string, unknown> {
+	const decoded: Record<string, unknown> = {};
+	for (const [key, fieldSchema] of getSchemaFieldEntries()) {
+		const raw = key === "type"
+			? frontmatter[key] ?? frontmatter.media
+			: frontmatter[key];
+		const parsed = parseFieldValueByKind(fieldSchema.kind, raw);
+		if (parsed !== undefined) {
+			decoded[key] = parsed;
+		}
+	}
+	return decoded;
+}
+
 function parseMediaType(value: unknown): MediaType | undefined {
 	const raw = toTrimmedString(value)?.toLowerCase();
 	if (!raw) {
@@ -100,70 +215,36 @@ function parseAnilistIds(frontmatter: Record<string, unknown>): number[] | undef
 	return values;
 }
 
-function setOptionalString(frontmatter: Record<string, unknown>, key: string, value: string | undefined) {
-	if (value && value.length) {
-		frontmatter[key] = value;
-	} else if (key in frontmatter) {
-		delete frontmatter[key];
-	}
-}
-
-function setOptionalNumber(frontmatter: Record<string, unknown>, key: string, value: number | undefined) {
-	if (value !== undefined) {
-		frontmatter[key] = value;
-	} else if (key in frontmatter) {
-		delete frontmatter[key];
-	}
-}
-
-function setOptionalNumberRecord(frontmatter: Record<string, unknown>, key: string, value: Record<string, number> | undefined) {
-	if (value && Object.keys(value).length) {
-		frontmatter[key] = JSON.stringify(value);
-	} else if (key in frontmatter) {
-		delete frontmatter[key];
-	}
-}
-
 export function decodeLatestMediaSnapshot(frontmatter: Record<string, unknown>): LatestMediaSnapshot {
+	const schemaDecoded = decodeSchemaFields(frontmatter);
 	const links = collectLinks(frontmatter);
-	const type = parseMediaType(frontmatter.type ?? frontmatter.media);
+	const type = parseMediaType(schemaDecoded.type);
 	const anilistIds = parseAnilistIds(frontmatter);
 	const anilistId = anilistIds?.[0];
 	const imdbId = getImdbIdFromFrontmatter(frontmatter) ?? getImdbIdFromLinks(links);
-	return {
+
+	const snapshot: LatestMediaSnapshot = {
 		version: CURRENT_MEDIA_SCHEMA_VERSION,
 		type,
-		status: parseMediaStatus(frontmatter.status),
-		title: toTrimmedString(frontmatter.title),
-		author: toTrimmedString(frontmatter.author),
-		progress: toTrimmedString(frontmatter.progress),
-		progressLabel: toTrimmedString(frontmatter.progressLabel),
-		progressUnit: toTrimmedString(frontmatter.progressUnit),
-		season: toFiniteInteger(frontmatter.season),
-		episode: toFiniteInteger(frontmatter.episode),
-		year: toFiniteInteger(frontmatter.year),
+		status: parseMediaStatus(schemaDecoded.status),
 		links,
-		imdbId: imdbId ?? undefined,
-		tmdbId: toFiniteInteger(frontmatter.tmdbId),
-		tmdbLastChecked: toFiniteInteger(frontmatter.tmdbLastChecked),
-		tmdbLatestSeason: toFiniteInteger(frontmatter.tmdbLatestSeason),
-		tmdbLatestEpisode: toFiniteInteger(frontmatter.tmdbLatestEpisode),
-		tmdbLatestSeasonEpisodes: toFiniteInteger(frontmatter.tmdbLatestSeasonEpisodes),
-		tmdbSeasonEpisodes: parseNumberRecord(frontmatter.tmdbSeasonEpisodes),
-		tmdbLatestAirDate: toTrimmedString(frontmatter.tmdbLatestAirDate),
-		tmdbLatestName: toTrimmedString(frontmatter.tmdbLatestName),
-		anilistId,
-		anilistIds,
-		anilistLastChecked: toFiniteInteger(frontmatter.anilistLastChecked),
-		anilistLatestEpisode: toFiniteInteger(frontmatter.anilistLatestEpisode),
-		anilistNextEpisode: toFiniteInteger(frontmatter.anilistNextEpisode),
-		anilistNextAiringAt: toFiniteInteger(frontmatter.anilistNextAiringAt),
-		anilistChapters: toFiniteInteger(frontmatter.anilistChapters),
-		anilistVolumes: toFiniteInteger(frontmatter.anilistVolumes),
-		anilistSeason: toFiniteInteger(frontmatter.anilistSeason),
-		anilistSeasonTotal: toFiniteInteger(frontmatter.anilistSeasonTotal),
-		anilistSeasonEpisodes: parseNumberRecord(frontmatter.anilistSeasonEpisodes),
 	};
+	for (const [key, value] of Object.entries(schemaDecoded)) {
+		if (SPECIAL_FIELD_KEYS.has(key)) {
+			continue;
+		}
+		snapshotToRecord(snapshot)[key] = value;
+	}
+	if (imdbId) {
+		snapshot.imdbId = imdbId;
+	}
+	if (anilistId !== undefined) {
+		snapshot.anilistId = anilistId;
+	}
+	if (anilistIds?.length) {
+		snapshot.anilistIds = anilistIds;
+	}
+	return snapshot;
 }
 
 export function sanitizeLatestMediaSnapshot(snapshot: LatestMediaSnapshot): LatestMediaSnapshot {
@@ -222,18 +303,15 @@ export function encodeLatestMediaSnapshot(
 	snapshot: LatestMediaSnapshot,
 	frontmatter: Record<string, unknown>,
 ) {
-	frontmatter[MEDIA_SCHEMA_VERSION_KEY] = CURRENT_MEDIA_SCHEMA_VERSION;
-	setOptionalString(frontmatter, "type", snapshot.type);
-	setOptionalString(frontmatter, "status", snapshot.status);
-	setOptionalString(frontmatter, "title", toTrimmedString(snapshot.title));
-	setOptionalString(frontmatter, "author", toTrimmedString(snapshot.author));
-	setOptionalString(frontmatter, "progress", toTrimmedString(snapshot.progress));
-	setOptionalString(frontmatter, "progressLabel", toTrimmedString(snapshot.progressLabel));
-	setOptionalString(frontmatter, "progressUnit", toTrimmedString(snapshot.progressUnit));
-	setOptionalNumber(frontmatter, "season", toFiniteInteger(snapshot.season));
-	setOptionalNumber(frontmatter, "episode", toFiniteInteger(snapshot.episode));
-	setOptionalNumber(frontmatter, "year", toFiniteInteger(snapshot.year));
-	setOptionalString(frontmatter, "imdbId", toTrimmedString(snapshot.imdbId));
+	frontmatter[MEDIA_SCHEMA_VERSION_KEY] = MEDIA_FRONTMATTER_SCHEMA.version;
+	for (const [key, fieldSchema] of getSchemaFieldEntries()) {
+		if (key === "links" || key === "anilistId" || key === "anilistIds") {
+			continue;
+		}
+		const rawValue = snapshotToRecord(snapshot)[key];
+		const encodedValue = serializeFieldValueByKind(fieldSchema.kind, rawValue);
+		setOptionalField(frontmatter, key, encodedValue);
+	}
 
 	const anilistIds = snapshot.anilistIds?.filter((value) => Number.isFinite(value));
 	if (anilistIds?.length) {
@@ -246,25 +324,6 @@ export function encodeLatestMediaSnapshot(
 		delete frontmatter.anilistIds;
 		delete frontmatter.anilistId;
 	}
-
-	setOptionalNumber(frontmatter, "tmdbId", toFiniteInteger(snapshot.tmdbId));
-	setOptionalNumber(frontmatter, "tmdbLastChecked", toFiniteInteger(snapshot.tmdbLastChecked));
-	setOptionalNumber(frontmatter, "tmdbLatestSeason", toFiniteInteger(snapshot.tmdbLatestSeason));
-	setOptionalNumber(frontmatter, "tmdbLatestEpisode", toFiniteInteger(snapshot.tmdbLatestEpisode));
-	setOptionalNumber(frontmatter, "tmdbLatestSeasonEpisodes", toFiniteInteger(snapshot.tmdbLatestSeasonEpisodes));
-	setOptionalNumberRecord(frontmatter, "tmdbSeasonEpisodes", parseNumberRecord(snapshot.tmdbSeasonEpisodes));
-	setOptionalString(frontmatter, "tmdbLatestAirDate", toTrimmedString(snapshot.tmdbLatestAirDate));
-	setOptionalString(frontmatter, "tmdbLatestName", toTrimmedString(snapshot.tmdbLatestName));
-
-	setOptionalNumber(frontmatter, "anilistLastChecked", toFiniteInteger(snapshot.anilistLastChecked));
-	setOptionalNumber(frontmatter, "anilistLatestEpisode", toFiniteInteger(snapshot.anilistLatestEpisode));
-	setOptionalNumber(frontmatter, "anilistNextEpisode", toFiniteInteger(snapshot.anilistNextEpisode));
-	setOptionalNumber(frontmatter, "anilistNextAiringAt", toFiniteInteger(snapshot.anilistNextAiringAt));
-	setOptionalNumber(frontmatter, "anilistChapters", toFiniteInteger(snapshot.anilistChapters));
-	setOptionalNumber(frontmatter, "anilistVolumes", toFiniteInteger(snapshot.anilistVolumes));
-	setOptionalNumber(frontmatter, "anilistSeason", toFiniteInteger(snapshot.anilistSeason));
-	setOptionalNumber(frontmatter, "anilistSeasonTotal", toFiniteInteger(snapshot.anilistSeasonTotal));
-	setOptionalNumberRecord(frontmatter, "anilistSeasonEpisodes", parseNumberRecord(snapshot.anilistSeasonEpisodes));
 
 	setLinks(frontmatter, snapshot.links ?? []);
 }

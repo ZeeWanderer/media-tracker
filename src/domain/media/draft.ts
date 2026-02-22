@@ -1,7 +1,7 @@
-import {MediaStatus, NewMediaDraft} from "../../types";
-import {ANILIST_TYPES, IMDB_TYPES, NOVEL_PROGRESS_TYPES, SEASON_EPISODE_TYPES} from "./config";
-import {extractAnilistId, extractImdbId, filterAnilistLinks, filterImdbLinks, getImdbIdFromLinks, normalizeLinks} from "./links";
-import {CURRENT_MEDIA_SCHEMA_VERSION} from "./schema";
+import {NewMediaDraft} from "../../types";
+import {ANILIST_TYPES, IMDB_TYPES, NOVEL_PROGRESS_TYPES, SEASON_EPISODE_TYPES, type MediaStatus} from "./config";
+import {extractImdbId, normalizeLinks} from "./links";
+import {parseChapterProgressValue} from "./progress";
 
 const MEDIA_STATUSES: MediaStatus[] = ["planned", "active", "completed", "on-hold", "dropped"];
 
@@ -41,37 +41,8 @@ function normalizeProgressValue(value?: string): string | undefined {
 	if (!trimmed) {
 		return undefined;
 	}
-	// Keep free-form progress text, but canonicalize pure integers (including 0).
-	if (/^\d+$/.test(trimmed)) {
-		const parsed = Number.parseInt(trimmed, 10);
-		if (!Number.isFinite(parsed) || parsed < 0) {
-			return undefined;
-		}
-		return String(parsed);
-	}
-	return trimmed;
-}
-
-function formatYamlString(value: string): string {
-	const trimmed = value.trim();
-	if (!trimmed.length) {
-		return "";
-	}
-	if (/[:#\n]/.test(trimmed)) {
-		return JSON.stringify(trimmed);
-	}
-	return trimmed;
-}
-
-function pushLine(lines: string[], key: string, value: string | undefined) {
-	if (!value) {
-		return;
-	}
-	const formatted = formatYamlString(value);
-	if (!formatted.length) {
-		return;
-	}
-	lines.push(`${key}: ${formatted}`);
+	const numericChapter = parseChapterProgressValue(trimmed);
+	return numericChapter ?? trimmed;
 }
 
 export function sanitizeMediaFileName(name: string): string {
@@ -137,39 +108,4 @@ export function sanitizeNewMediaDraft(draft: NewMediaDraft): NewMediaDraft {
 	}
 
 	return normalized;
-}
-
-export function buildMediaFrontmatter(draft: NewMediaDraft): string {
-	const normalizedDraft = sanitizeNewMediaDraft(draft);
-	const lines: string[] = [];
-	lines.push("---");
-	lines.push(`type: ${normalizedDraft.type}`);
-	lines.push(`mediaTrackerVersion: ${CURRENT_MEDIA_SCHEMA_VERSION}`);
-	pushLine(lines, "title", normalizedDraft.title);
-	pushLine(lines, "status", normalizedDraft.status);
-	pushLine(lines, "author", normalizedDraft.author);
-	pushLine(lines, "progress", normalizedDraft.progress);
-	pushLine(lines, "season", normalizedDraft.season);
-	pushLine(lines, "episode", normalizedDraft.episode);
-	pushLine(lines, "year", normalizedDraft.year);
-
-	const normalizedLinks = normalizedDraft.links;
-	const imdbId = normalizedDraft.imdbId ?? getImdbIdFromLinks(normalizedLinks);
-	pushLine(lines, "imdbId", imdbId);
-	const anilistId = normalizedDraft.anilistId ? extractAnilistId(normalizedDraft.anilistId) : undefined;
-	if (anilistId) {
-		pushLine(lines, "anilistId", String(anilistId));
-	}
-	const storedLinks = filterImdbLinks(filterAnilistLinks(normalizedLinks));
-
-	if (storedLinks.length) {
-		lines.push("links:");
-		for (const link of storedLinks) {
-			lines.push(`  - ${formatYamlString(link)}`);
-		}
-	}
-
-	lines.push("---");
-	lines.push("");
-	return lines.join("\n");
 }

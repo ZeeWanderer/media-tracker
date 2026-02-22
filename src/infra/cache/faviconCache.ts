@@ -1,6 +1,6 @@
 import {App, DataAdapter} from "obsidian";
 import {httpRequest} from "../network/httpClient";
-import {toLinkUrl} from "../../domain/media/links";
+import {getFaviconCacheKey as getDomainFaviconCacheKey} from "../../domain/media/links";
 
 const FAVICON_CACHE_VERSION = 1;
 const FAVICON_CACHE_DIR = "cache/favicons";
@@ -31,15 +31,7 @@ export type DesktopFaviconCacheOptions = {
 };
 
 export function getFaviconCacheKey(link: string): string | null {
-	const url = toLinkUrl(link);
-	if (!url) {
-		return null;
-	}
-	try {
-		return new URL(url).origin.toLowerCase();
-	} catch {
-		return null;
-	}
+	return getDomainFaviconCacheKey(link);
 }
 
 function createEmptyDiskIndex(): FaviconDiskIndex {

@@ -2,7 +2,7 @@ import {ItemView, Menu, Notice, WorkspaceLeaf} from "obsidian";
 import MediaTrackerPlugin from "../main";
 import {MediaItem, MediaStatus, MediaType, UpdateLogRun} from "../types";
 import {getTitleSortKey} from "../domain/media/readModel";
-import {MEDIA_TYPES, NOVEL_PROGRESS_TYPES, SEASON_EPISODE_TYPES, TMDB_TYPES} from "../domain/media/config";
+import {MEDIA_STATUSES, MEDIA_TYPES, TMDB_TYPES} from "../domain/media/config";
 import {MEDIA_STATUS_LABELS} from "./mediaStatusLabels";
 import {MEDIA_TYPE_LABELS} from "./mediaTypeConfig";
 import {NewMediaModal} from "./newMediaModal";
@@ -21,15 +21,15 @@ import {
 	updateMediaNoteStatus,
 } from "../flows/media";
 import {renderCard, renderProgressMeta, renderTableHeader, renderTableRow, type RenderHandlers, type SortDirection, type SortKey} from "./trackerRenderer";
-import {getFaviconCacheKey} from "../infra/cache/faviconCache";
-import {KNOWN_ICON_BASES, getAnilistUrl, getKnownIconAsset} from "../domain/media/links";
-import {createVaultUpdateCommit, isVaultGitRepository} from "../infra/git/vaultGit";
+import {createVaultUpdateCommit, isVaultGitRepository} from "../flows/gitFlow";
+import {getFaviconCacheKey, KNOWN_ICON_BASES, getAnilistUrl, getKnownIconAsset} from "../domain/media/links";
 import {openMediaUpdateLog} from "./updateLogView";
+import {applyProgressInputToFields, buildProgressDisplay} from "../domain/media/progress";
 
 export const MEDIA_TRACKER_VIEW = "media-tracker-view";
 
 const TYPE_FILTERS: Array<MediaType | "all"> = ["all", ...MEDIA_TYPES];
-const STATUS_FILTERS: Array<MediaStatus | "all"> = ["all", "planned", "active", "completed", "on-hold", "dropped"];
+const STATUS_FILTERS: Array<MediaStatus | "all"> = ["all", ...MEDIA_STATUSES];
 
 type DisplayMode = "cards" | "details";
 type TaskLogContext = {
@@ -60,6 +60,8 @@ export class MediaTrackerView extends ItemView {
 	private refreshButton: HTMLButtonElement | null = null;
 	private refreshLabel: HTMLSpanElement | null = null;
 	private isCreatingGitCommit = false;
+	private trackedItemsCache: MediaItem[] = [];
+	private trackedItemsCacheDirty = true;
 
 	constructor(leaf: WorkspaceLeaf, plugin: MediaTrackerPlugin) {
 		super(leaf);
@@ -81,6 +83,18 @@ export class MediaTrackerView extends ItemView {
 
 	async onOpen() {
 		this.render();
+	}
+
+	invalidateItemsCache() {
+		this.trackedItemsCacheDirty = true;
+	}
+
+	private getTrackedItems(): MediaItem[] {
+		if (this.trackedItemsCacheDirty) {
+			this.trackedItemsCache = listTrackedMedia(this.app, this.plugin.settings);
+			this.trackedItemsCacheDirty = false;
+		}
+		return this.trackedItemsCache;
 	}
 
 	private getItemLogMeta(item: MediaItem): Record<string, unknown> {
@@ -182,6 +196,7 @@ export class MediaTrackerView extends ItemView {
 					changed,
 				});
 				new Notice(`Normalized ${changed} of ${files.length} media notes.`);
+				this.invalidateItemsCache();
 				this.render();
 			}, "Failed to normalize frontmatter.", {
 				event: "cleanup_all",
@@ -219,7 +234,7 @@ export class MediaTrackerView extends ItemView {
 			clearButton?.toggleClass("is-visible", !!searchInput.value);
 		}
 
-		const items = listTrackedMedia(this.app, this.plugin.settings);
+		const items = this.getTrackedItems();
 		const filtered = items
 			.filter((item) => this.matchesFilters(item))
 			.filter((item) => this.matchesSearch(item));
@@ -308,13 +323,14 @@ export class MediaTrackerView extends ItemView {
 		const displaySelect = controls.createEl("select");
 		displaySelect.createEl("option", {value: "cards", text: "Cards"});
 		displaySelect.createEl("option", {value: "details", text: "Details"});
-		displaySelect.value = this.displayMode;
-		displaySelect.addEventListener("change", () => {
-			this.displayMode = displaySelect.value as DisplayMode;
-			this.plugin.settings.displayMode = this.displayMode;
-			void this.plugin.saveSettings();
-			this.render();
-		});
+			displaySelect.value = this.displayMode;
+			displaySelect.addEventListener("change", () => {
+				this.displayMode = displaySelect.value as DisplayMode;
+				void this.plugin.updateSettings((settings) => {
+					settings.displayMode = this.displayMode;
+				});
+				this.render();
+			});
 
 		return {searchInput, clearButton};
 	}
@@ -463,23 +479,22 @@ export class MediaTrackerView extends ItemView {
 		this.clearRefreshProgress();
 		this.updateRefreshButtonState();
 		try {
-			const items = listTrackedMedia(this.app, this.plugin.settings);
+			const items = this.getTrackedItems();
 			this.plugin.logger.info("refresh", "bulk_start", "Starting bulk media refresh.", {count: items.length});
-			const run = await refreshTrackedMedia(
-				this.app,
-				this.plugin.settings,
-				items,
+				const run = await refreshTrackedMedia(
+					this.app,
+					this.plugin.settings,
+					items,
 				(current, total) => {
 					this.setRefreshProgress(current, total);
 				},
-				(activeRun) => {
-					this.plugin.setActiveUpdateRun(activeRun);
-				},
-			);
-			this.appendUpdateRun(run);
-			await this.plugin.saveSettings();
-			this.notifyRefreshResult(run);
-			this.plugin.logger.info("refresh", "bulk_complete", "Bulk media refresh completed.", {
+					(activeRun) => {
+						this.plugin.setActiveUpdateRun(activeRun);
+					},
+				);
+				await this.plugin.recordCompletedUpdateRun(run);
+				this.notifyRefreshResult(run);
+				this.plugin.logger.info("refresh", "bulk_complete", "Bulk media refresh completed.", {
 				total: run.total,
 				updated: run.updated,
 				unchanged: run.unchanged,
@@ -501,19 +516,9 @@ export class MediaTrackerView extends ItemView {
 			this.clearRefreshProgress();
 			this.plugin.setActiveUpdateRun(null);
 			this.updateRefreshButtonState();
+			this.invalidateItemsCache();
 			this.render();
 		}
-	}
-
-	private appendUpdateRun(run: UpdateLogRun) {
-		const MAX_RUNS = 25;
-		const MAX_ENTRIES_PER_RUN = 1500;
-		const trimmedRun: UpdateLogRun = {
-			...run,
-			entries: run.entries.slice(0, MAX_ENTRIES_PER_RUN),
-		};
-		const currentRuns = this.plugin.settings.updateLogRuns ?? [];
-		this.plugin.settings.updateLogRuns = [trimmedRun, ...currentRuns].slice(0, MAX_RUNS);
 	}
 
 	private notifyRefreshResult(run: UpdateLogRun) {
@@ -789,7 +794,7 @@ export class MediaTrackerView extends ItemView {
 			this.render();
 			return;
 		}
-		const latest = optimistic ?? listTrackedMedia(this.app, this.plugin.settings)
+		const latest = optimistic ?? this.getTrackedItems()
 			.find((candidate) => candidate.file.path === filePath);
 		if (!latest) {
 			this.render();
@@ -801,49 +806,32 @@ export class MediaTrackerView extends ItemView {
 	}
 
 	private applyProgressValueToItem(item: MediaItem, value: string): MediaItem {
-		const trimmed = value.trim();
-		if (SEASON_EPISODE_TYPES.has(item.type)) {
-			const seMatch = trimmed.match(/^S\s*(\d+)\s*E\s*(\d+)$/i);
-			const altMatch = trimmed.match(/^(\d+)\s*x\s*(\d+)$/i);
-			const match = seMatch ?? altMatch;
-			if (match?.[1] && match[2]) {
-				const season = Number.parseInt(match[1], 10);
-				const episode = Number.parseInt(match[2], 10);
-				if (Number.isFinite(season) && Number.isFinite(episode)) {
-					return {
-						...item,
-						season,
-						episode,
-						progress: `S${season}E${episode}`,
-					};
-				}
-			}
-			return {
-				...item,
-				progress: trimmed,
-			};
+		const applied = applyProgressInputToFields(item.type, value, {
+			progress: item.progressRaw,
+			progressLabel: item.progressLabel,
+			progressUnit: "ch",
+			season: item.season,
+			episode: item.episode,
+			year: item.year,
+		});
+		if (!applied.accepted) {
+			return item;
 		}
-		if (NOVEL_PROGRESS_TYPES.has(item.type)) {
-			const chapterMatch = trimmed.match(/^(?:ch|chapter)\s*(\d+(?:\.\d+)?)$/i);
-			const normalized = chapterMatch?.[1] ?? trimmed;
-			if (/^\d+(?:\.\d+)?$/.test(normalized)) {
-				return {
-					...item,
-					progress: `ch ${normalized}`,
-					progressRaw: normalized,
-					progressLabel: undefined,
-				};
-			}
-			return {
-				...item,
-				progress: trimmed,
-				progressRaw: undefined,
-				progressLabel: trimmed || undefined,
-			};
-		}
+		const nextProgress = buildProgressDisplay(item.type, {
+			progress: applied.next.progress,
+			progressLabel: applied.next.progressLabel,
+			progressUnit: applied.next.progressUnit,
+			season: applied.next.season,
+			episode: applied.next.episode,
+			year: applied.next.year,
+		});
 		return {
 			...item,
-			progress: trimmed,
+			progress: nextProgress,
+			progressRaw: applied.next.progress,
+			progressLabel: applied.next.progressLabel,
+			season: applied.next.season,
+			episode: applied.next.episode,
 		};
 	}
 
@@ -893,6 +881,7 @@ export class MediaTrackerView extends ItemView {
 							this.plugin.logger.info("refresh", "single_result", `${item.title}: ${result.message}`, meta);
 						}
 						new Notice(`${item.title}: ${result.message}`, result.status === "failed" ? 10000 : 4000);
+						this.invalidateItemsCache();
 						this.render();
 					}, `Failed to refresh latest updates for "${item.title}".`, {
 						scope: "refresh",
@@ -936,6 +925,7 @@ export class MediaTrackerView extends ItemView {
 			.onClick(() => {
 				this.runTask(async () => {
 					await normalizeMediaNoteFrontmatter(this.app, item.file);
+					this.invalidateItemsCache();
 					this.render();
 				}, `Failed to clean "${item.title}".`, {
 					event: "clean_note",

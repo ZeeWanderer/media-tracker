@@ -1,7 +1,7 @@
 import {TFile} from "obsidian";
+import type {MediaStatus, MediaType} from "./domain/media/config";
 
-export type MediaType = "novel" | "manga" | "series" | "anime" | "movie";
-export type MediaStatus = "planned" | "active" | "completed" | "on-hold" | "dropped";
+export type {MediaType, MediaStatus};
 export type UpdateNotificationMode = "quiet" | "summary" | "verbose";
 export type UpdateProvider = "anilist" | "tmdb" | "none";
 export type UpdateEntryStatus = "updated" | "unchanged" | "failed" | "skipped";

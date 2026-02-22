@@ -1,10 +1,15 @@
-import type {MediaStatus, MediaType} from "../../types";
+import {
+	MEDIA_STATUSES,
+	MEDIA_TYPES,
+	type MediaStatus,
+	type MediaType,
+} from "./config";
 
 export const CURRENT_MEDIA_SCHEMA_VERSION = 3;
 export const MEDIA_SCHEMA_VERSION_KEY = "mediaTrackerVersion";
 
-export const MEDIA_TYPE_VALUES: MediaType[] = ["novel", "manga", "series", "anime", "movie"];
-export const MEDIA_STATUS_VALUES: MediaStatus[] = ["planned", "active", "completed", "on-hold", "dropped"];
+export const MEDIA_TYPE_VALUES: MediaType[] = [...MEDIA_TYPES];
+export const MEDIA_STATUS_VALUES: MediaStatus[] = [...MEDIA_STATUSES];
 
 export const MEDIA_TYPE_SET = new Set<MediaType>(MEDIA_TYPE_VALUES);
 export const MEDIA_STATUS_SET = new Set<MediaStatus>(MEDIA_STATUS_VALUES);

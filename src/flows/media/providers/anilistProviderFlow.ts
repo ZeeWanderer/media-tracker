@@ -1,7 +1,7 @@
-import {App, TFile} from "obsidian";
+import {App} from "obsidian";
 import {MediaItem} from "../../../types";
 import {lookupAniListLatest} from "../../../infra/api/anilistApi";
-import {processMediaFrontmatter} from "../../../domain/media";
+import {updateMediaSnapshot} from "../../../domain/media";
 import {extractAnilistId} from "../../../domain/media/links";
 
 export type AniListRefreshResult = {
@@ -15,14 +15,6 @@ function delay(ms: number): Promise<void> {
 		return Promise.resolve();
 	}
 	return new Promise((resolve) => window.setTimeout(resolve, ms));
-}
-
-async function updateMediaFrontmatter(
-	app: App,
-	file: TFile,
-	updater: (frontmatter: Record<string, unknown>) => void,
-): Promise<void> {
-	await processMediaFrontmatter(app, file, updater);
 }
 
 function sameNumberArray(a: number[] | undefined, b: number[] | undefined): boolean {
@@ -118,19 +110,13 @@ export async function refreshAniListLatest(
 			|| item.anilistLatestEpisode !== undefined
 			|| item.anilistNextEpisode !== undefined
 			|| item.anilistNextAiringAt !== undefined;
-		await updateMediaFrontmatter(app, item.file, (frontmatter) => {
-			frontmatter.anilistId = anilistId;
-			frontmatter.anilistIds = storedIds;
-			frontmatter.anilistLastChecked = Date.now();
-			if ("anilistLatestEpisode" in frontmatter) {
-				delete frontmatter.anilistLatestEpisode;
-			}
-			if ("anilistNextEpisode" in frontmatter) {
-				delete frontmatter.anilistNextEpisode;
-			}
-			if ("anilistNextAiringAt" in frontmatter) {
-				delete frontmatter.anilistNextAiringAt;
-			}
+		await updateMediaSnapshot(app, item.file, (snapshot) => {
+			snapshot.anilistId = anilistId;
+			snapshot.anilistIds = storedIds;
+			snapshot.anilistLastChecked = Date.now();
+			snapshot.anilistLatestEpisode = undefined;
+			snapshot.anilistNextEpisode = undefined;
+			snapshot.anilistNextAiringAt = undefined;
 		});
 		await delay(minDelayMs);
 		return {
@@ -161,58 +147,18 @@ export async function refreshAniListLatest(
 			|| !sameNumberRecord(nextSeasonEpisodes, item.anilistSeasonEpisodes)
 			|| seasonIdsChanged;
 
-	await updateMediaFrontmatter(app, item.file, (frontmatter) => {
-		frontmatter.anilistId = anilistId;
-		frontmatter.anilistIds = storedIds;
-		frontmatter.anilistLastChecked = Date.now();
-
-		if (nextLatestEpisode !== undefined) {
-			frontmatter.anilistLatestEpisode = nextLatestEpisode;
-		} else if ("anilistLatestEpisode" in frontmatter) {
-			delete frontmatter.anilistLatestEpisode;
-		}
-
-		if (nextEpisode !== undefined) {
-			frontmatter.anilistNextEpisode = nextEpisode;
-		} else if ("anilistNextEpisode" in frontmatter) {
-			delete frontmatter.anilistNextEpisode;
-		}
-
-		if (nextAiringAt !== undefined) {
-			frontmatter.anilistNextAiringAt = nextAiringAt;
-		} else if ("anilistNextAiringAt" in frontmatter) {
-			delete frontmatter.anilistNextAiringAt;
-		}
-
-		if (nextChapters !== undefined) {
-			frontmatter.anilistChapters = nextChapters;
-		} else if ("anilistChapters" in frontmatter) {
-			delete frontmatter.anilistChapters;
-		}
-
-		if (nextVolumes !== undefined) {
-			frontmatter.anilistVolumes = nextVolumes;
-		} else if ("anilistVolumes" in frontmatter) {
-			delete frontmatter.anilistVolumes;
-		}
-
-		if (nextSeason !== undefined) {
-			frontmatter.anilistSeason = nextSeason;
-		} else if ("anilistSeason" in frontmatter) {
-			delete frontmatter.anilistSeason;
-		}
-
-		if (nextSeasonTotal !== undefined) {
-			frontmatter.anilistSeasonTotal = nextSeasonTotal;
-		} else if ("anilistSeasonTotal" in frontmatter) {
-			delete frontmatter.anilistSeasonTotal;
-		}
-
-		if (nextSeasonEpisodes) {
-			frontmatter.anilistSeasonEpisodes = JSON.stringify(nextSeasonEpisodes);
-		} else if ("anilistSeasonEpisodes" in frontmatter) {
-			delete frontmatter.anilistSeasonEpisodes;
-		}
+	await updateMediaSnapshot(app, item.file, (snapshot) => {
+		snapshot.anilistId = anilistId;
+		snapshot.anilistIds = storedIds;
+		snapshot.anilistLastChecked = Date.now();
+		snapshot.anilistLatestEpisode = nextLatestEpisode;
+		snapshot.anilistNextEpisode = nextEpisode;
+		snapshot.anilistNextAiringAt = nextAiringAt;
+		snapshot.anilistChapters = nextChapters;
+		snapshot.anilistVolumes = nextVolumes;
+		snapshot.anilistSeason = nextSeason;
+		snapshot.anilistSeasonTotal = nextSeasonTotal;
+		snapshot.anilistSeasonEpisodes = nextSeasonEpisodes;
 	});
 
 	await delay(minDelayMs);

@@ -9,6 +9,10 @@ import {PluginLogger} from "./infra/logging/pluginLogger";
 import {listTrackedMedia, refreshTrackedMedia} from "./flows/media";
 import {UpdateLogRun} from "./types";
 
+type MediaQuerySettingsSnapshot = {
+	mediaFolder: string;
+};
+
 export default class MediaTrackerPlugin extends Plugin {
 	settings: MediaTrackerSettings;
 	faviconCache!: DesktopFaviconCache;
@@ -37,10 +41,10 @@ export default class MediaTrackerPlugin extends Plugin {
 		this.addSettingTab(new MediaTrackerSettingTab(this.app, this));
 		this.addRibbonIcon("film", "Open media tracker", () => openMediaTracker(this));
 
-		this.registerEvent(this.app.metadataCache.on("changed", () => this.scheduleRefresh()));
-		this.registerEvent(this.app.vault.on("create", () => this.scheduleRefresh()));
-		this.registerEvent(this.app.vault.on("delete", () => this.scheduleRefresh()));
-		this.registerEvent(this.app.vault.on("rename", () => this.scheduleRefresh()));
+		this.registerEvent(this.app.metadataCache.on("changed", () => this.handleVaultDataMutation()));
+		this.registerEvent(this.app.vault.on("create", () => this.handleVaultDataMutation()));
+		this.registerEvent(this.app.vault.on("delete", () => this.handleVaultDataMutation()));
+		this.registerEvent(this.app.vault.on("rename", () => this.handleVaultDataMutation()));
 		void this.runStartupLibraryUpdateIfDue();
 	}
 
@@ -109,16 +113,48 @@ export default class MediaTrackerPlugin extends Plugin {
 		if (!Number.isFinite(this.settings.loggingMaxFiles) || this.settings.loggingMaxFiles <= 0) {
 			this.settings.loggingMaxFiles = DEFAULT_SETTINGS.loggingMaxFiles;
 		}
+		this.settings.mediaFolder = this.normalizeMediaFolder(this.settings.mediaFolder);
 	}
 
 	async saveSettings() {
+		await this.updateSettings(() => {
+			// Compatibility path for call sites that mutate settings directly.
+		});
+	}
+
+	async updateSettings(mutator: (settings: MediaTrackerSettings) => void) {
+		const previousQuerySettings = this.getMediaQuerySettingsSnapshot(this.settings);
+		mutator(this.settings);
+		this.settings.mediaFolder = this.normalizeMediaFolder(this.settings.mediaFolder);
 		await this.saveData(this.settings);
 		this.logger?.updateOptions({
 			enabled: this.settings.loggingEnabled,
 			level: this.settings.loggingLevel,
 			maxLogFiles: this.settings.loggingMaxFiles,
 		});
+		const nextQuerySettings = this.getMediaQuerySettingsSnapshot(this.settings);
+		if (this.didMediaQuerySettingsChange(previousQuerySettings, nextQuerySettings)) {
+			this.invalidateTrackerItemCaches();
+		}
 		this.scheduleRefresh();
+	}
+
+	private normalizeMediaFolder(value: string | undefined): string {
+		const normalized = (value ?? "").trim();
+		return normalized.length ? normalized : DEFAULT_SETTINGS.mediaFolder;
+	}
+
+	private getMediaQuerySettingsSnapshot(settings: MediaTrackerSettings): MediaQuerySettingsSnapshot {
+		return {
+			mediaFolder: this.normalizeMediaFolder(settings.mediaFolder),
+		};
+	}
+
+	private didMediaQuerySettingsChange(
+		previous: MediaQuerySettingsSnapshot,
+		next: MediaQuerySettingsSnapshot,
+	): boolean {
+		return previous.mediaFolder !== next.mediaFolder;
 	}
 
 	scheduleRefresh() {
@@ -136,9 +172,24 @@ export default class MediaTrackerPlugin extends Plugin {
 		this.skippedRefreshEvents += 1;
 	}
 
+	private handleVaultDataMutation() {
+		this.invalidateTrackerItemCaches();
+		this.scheduleRefresh();
+	}
+
 	refreshViews() {
 		this.refreshTrackerViews();
 		this.refreshUpdateLogViews();
+	}
+
+	private invalidateTrackerItemCaches() {
+		const leaves = this.app.workspace.getLeavesOfType(MEDIA_TRACKER_VIEW);
+		for (const leaf of leaves) {
+			const view = leaf.view;
+			if (view instanceof MediaTrackerView) {
+				view.invalidateItemsCache();
+			}
+		}
 	}
 
 	refreshTrackerViews() {
@@ -163,12 +214,12 @@ export default class MediaTrackerPlugin extends Plugin {
 
 	setActiveUpdateRun(run: UpdateLogRun | null) {
 		const hadPendingRun = Boolean(this.settings.pendingUpdateRun);
-		this.activeUpdateRun = run ? this.cloneUpdateRun({
+		this.activeUpdateRun = run ? {
 			...run,
 			state: "in-progress",
-		}) : null;
+		} : null;
 		this.settings.pendingUpdateRun = this.activeUpdateRun
-			? this.cloneUpdateRun(this.activeUpdateRun)
+			? this.activeUpdateRun
 			: undefined;
 		if (this.activeUpdateRun) {
 			if (!hadPendingRun) {
@@ -183,10 +234,16 @@ export default class MediaTrackerPlugin extends Plugin {
 	}
 
 	getActiveUpdateRun(): UpdateLogRun | null {
-		if (!this.activeUpdateRun) {
-			return null;
+		return this.activeUpdateRun;
+	}
+
+	async recordCompletedUpdateRun(run: UpdateLogRun) {
+		if (Number.isFinite(run.finishedAt) && run.finishedAt > 0) {
+			this.settings.tmdbLastSync = Math.floor(run.finishedAt);
 		}
-		return this.cloneUpdateRun(this.activeUpdateRun);
+		this.appendUpdateRun(run);
+		await this.saveData(this.settings);
+		this.refreshUpdateLogViews();
 	}
 
 	private getStartupUpdateIntervalMs(): number {
@@ -337,14 +394,13 @@ export default class MediaTrackerPlugin extends Plugin {
 				return;
 			}
 
-			const run = await refreshTrackedMedia(this.app, this.settings, items, undefined, (activeRun) => {
-				this.setActiveUpdateRun(activeRun);
-			});
-			this.appendUpdateRun(run);
-			await this.saveData(this.settings);
-			this.logger.info("refresh", "startup_completed", "Startup library update completed.", {
-				total: run.total,
-				updated: run.updated,
+				const run = await refreshTrackedMedia(this.app, this.settings, items, undefined, (activeRun) => {
+					this.setActiveUpdateRun(activeRun);
+				});
+				await this.recordCompletedUpdateRun(run);
+				this.logger.info("refresh", "startup_completed", "Startup library update completed.", {
+					total: run.total,
+					updated: run.updated,
 				unchanged: run.unchanged,
 				failed: run.failed,
 				skipped: run.skipped,
@@ -361,6 +417,7 @@ export default class MediaTrackerPlugin extends Plugin {
 		} finally {
 			this.startupUpdateInProgress = false;
 			this.setActiveUpdateRun(null);
+			this.invalidateTrackerItemCaches();
 			this.scheduleRefresh();
 		}
 	}

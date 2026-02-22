@@ -8,6 +8,8 @@ export {
 	NOVEL_PROGRESS_TYPES,
 	SEASON_EPISODE_TYPES,
 	TMDB_TYPES,
+	type MediaStatus,
+	type MediaType,
 } from "./config";
 export {
 	CURRENT_MEDIA_SCHEMA_VERSION,
@@ -17,10 +19,53 @@ export {
 	type MediaSnapshotV3,
 } from "./schema";
 export {
-	buildMediaFrontmatter,
+	cleanMediaFrontmatter,
+	CURRENT_MEDIA_SCHEMA_VERSION as CURRENT_FRONTMATTER_SCHEMA_VERSION,
+	decodeLatestMediaSnapshot,
+	decodeMediaSnapshot,
+	encodeLatestMediaSnapshot,
+	migrateMediaSnapshotToLatest,
+	normalizeMediaFilesFrontmatter,
+	normalizeMediaFrontmatter,
+	processMediaFrontmatter,
+	readMediaSchemaVersion,
+	sanitizeLatestMediaSnapshot,
+	updateMediaFrontmatter,
+	updateMediaSnapshot,
+	validateLatestMediaSnapshot,
+	type LatestMediaSnapshot as FrontmatterSnapshot,
+	type MediaFrontmatterProcessResult,
+	type MediaFrontmatterUpdater,
+	type MediaMigrationResult,
+	type MediaSnapshotDecodeResult,
+	type MediaSnapshotMigrationResult,
+	type MediaSnapshotUpdater,
+	type MediaSnapshotV3 as FrontmatterSnapshotV3,
+	type MediaValidationIssue,
+} from "./frontmatter";
+export {
 	sanitizeMediaFileName,
 	sanitizeNewMediaDraft,
 } from "./draft";
+export {
+	buildProgressDisplay,
+	formatSeasonEpisodeProgress,
+	incrementProgressNumericString,
+	normalizeProgressInput,
+	parseChapterProgressValue,
+	parseMangaProgress,
+	parseSeasonEpisodeProgress,
+	type MangaProgress,
+	type ParsedProgressInput,
+	type ProgressDisplaySnapshot,
+	type SeasonEpisodeProgress,
+} from "./progress";
+export {
+	buildLatestBadges,
+	getNextProgressValue,
+	type TrackerBadgeDescriptor,
+	type TrackerComputationItem,
+} from "./tracker";
 export {
 	collectLinks,
 	extractAnilistId,
@@ -28,6 +73,7 @@ export {
 	filterAnilistLinks,
 	filterImdbLinks,
 	formatLinkLabel,
+	getFaviconCacheKey,
 	getAnilistIdFromFrontmatter,
 	getAnilistIdFromLinks,
 	getAnilistUrl,
@@ -43,25 +89,6 @@ export {
 	setLinks,
 	toLinkUrl,
 } from "./links";
-export {
-	migrateMediaSnapshotToLatest,
-	readMediaSchemaVersion,
-	type MediaMigrationResult,
-	type MediaSnapshotMigrationResult,
-} from "./migrations";
-export {
-	decodeLatestMediaSnapshot,
-	encodeLatestMediaSnapshot,
-	sanitizeLatestMediaSnapshot,
-	validateLatestMediaSnapshot,
-	type MediaValidationIssue,
-} from "./validation";
-export {
-	cleanMediaFrontmatter,
-	normalizeMediaFrontmatter,
-	processMediaFrontmatter,
-	type MediaFrontmatterProcessResult,
-} from "./store";
 export {
 	getTitleSortKey,
 	listMediaItems,

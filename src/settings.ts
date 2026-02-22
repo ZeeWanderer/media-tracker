@@ -3,7 +3,7 @@ import MediaTrackerPlugin from "./main";
 import {UpdateLogRun, UpdateNotificationMode} from "./types";
 import {PluginLogLevel, getPluginLogDirectory} from "./infra/logging/pluginLogger";
 import {openPluginLog} from "./ui/pluginLogView";
-import {ensurePluginGitignoreEntries} from "./infra/git/vaultGit";
+import {ensurePluginGitignoreEntries} from "./flows/gitFlow";
 
 export type StartupUpdateThrottleMode = "day" | "week" | "hours";
 
@@ -56,151 +56,162 @@ export class MediaTrackerSettingTab extends PluginSettingTab {
 
 		containerEl.createEl("h2", {text: "Media Tracker settings"});
 
-		new Setting(containerEl)
-			.setName("Media folder")
-			.setDesc("Folder path inside your vault that stores media notes.")
-			.addText((text) => text
-				.setPlaceholder("Media")
-				.setValue(this.plugin.settings.mediaFolder)
-				.onChange(async (value) => {
-					this.plugin.settings.mediaFolder = value.trim() || DEFAULT_SETTINGS.mediaFolder;
-					await this.plugin.saveSettings();
-				}));
+			new Setting(containerEl)
+				.setName("Media folder")
+				.setDesc("Folder path inside your vault that stores media notes.")
+				.addText((text) => text
+					.setPlaceholder("Media")
+					.setValue(this.plugin.settings.mediaFolder)
+					.onChange(async (value) => {
+						await this.plugin.updateSettings((settings) => {
+							settings.mediaFolder = value.trim() || DEFAULT_SETTINGS.mediaFolder;
+						});
+					}));
 
-		new Setting(containerEl)
-			.setName("TMDb API key")
-			.setDesc("Optional. Used to check latest episodes for series.")
-			.addText((text) => text
-				.setPlaceholder("tmdb api key")
-				.setValue(this.plugin.settings.tmdbApiKey)
-				.onChange(async (value) => {
-					this.plugin.settings.tmdbApiKey = value.trim();
-					await this.plugin.saveSettings();
-				}));
+			new Setting(containerEl)
+				.setName("TMDb API key")
+				.setDesc("Optional. Used to check latest episodes for series.")
+				.addText((text) => text
+					.setPlaceholder("tmdb api key")
+					.setValue(this.plugin.settings.tmdbApiKey)
+					.onChange(async (value) => {
+						await this.plugin.updateSettings((settings) => {
+							settings.tmdbApiKey = value.trim();
+						});
+					}));
 
-		new Setting(containerEl)
-			.setName("TMDb rate limit (ms)")
-			.setDesc("Minimum delay between TMDb requests when bulk refreshing.")
-			.addText((text) => text
-				.setPlaceholder("300")
-				.setValue(String(this.plugin.settings.tmdbMinIntervalMs))
-				.onChange(async (value) => {
-					const parsed = Number.parseInt(value, 10);
-					this.plugin.settings.tmdbMinIntervalMs = Number.isFinite(parsed) ? parsed : DEFAULT_SETTINGS.tmdbMinIntervalMs;
-					await this.plugin.saveSettings();
-				}));
+			new Setting(containerEl)
+				.setName("TMDb rate limit (ms)")
+				.setDesc("Minimum delay between TMDb requests when bulk refreshing.")
+				.addText((text) => text
+					.setPlaceholder("300")
+					.setValue(String(this.plugin.settings.tmdbMinIntervalMs))
+					.onChange(async (value) => {
+						const parsed = Number.parseInt(value, 10);
+						await this.plugin.updateSettings((settings) => {
+							settings.tmdbMinIntervalMs = Number.isFinite(parsed) ? parsed : DEFAULT_SETTINGS.tmdbMinIntervalMs;
+						});
+					}));
 
 		new Setting(containerEl)
 			.setName("Update notifications")
 			.setDesc("Control notices shown after refresh.")
-			.addDropdown((dropdown) => dropdown
-				.addOption("quiet", "Quiet (failures only)")
-				.addOption("summary", "Summary")
-				.addOption("verbose", "Verbose")
-				.setValue(this.plugin.settings.updateNotificationMode)
-				.onChange(async (value) => {
-					if (value === "quiet" || value === "summary" || value === "verbose") {
-						this.plugin.settings.updateNotificationMode = value;
-						await this.plugin.saveSettings();
-					}
-				}));
+				.addDropdown((dropdown) => dropdown
+					.addOption("quiet", "Quiet (failures only)")
+					.addOption("summary", "Summary")
+					.addOption("verbose", "Verbose")
+					.setValue(this.plugin.settings.updateNotificationMode)
+					.onChange(async (value) => {
+						if (value === "quiet" || value === "summary" || value === "verbose") {
+							await this.plugin.updateSettings((settings) => {
+								settings.updateNotificationMode = value;
+							});
+						}
+					}));
 
-		new Setting(containerEl)
-			.setName("Auto-open update log on failures")
-			.setDesc("When refresh ends with failures, open the update log tab automatically.")
-			.addToggle((toggle) => toggle
-				.setValue(this.plugin.settings.autoOpenUpdateLogOnFailure)
-				.onChange(async (value) => {
-					this.plugin.settings.autoOpenUpdateLogOnFailure = value;
-					await this.plugin.saveSettings();
-				}));
+			new Setting(containerEl)
+				.setName("Auto-open update log on failures")
+				.setDesc("When refresh ends with failures, open the update log tab automatically.")
+				.addToggle((toggle) => toggle
+					.setValue(this.plugin.settings.autoOpenUpdateLogOnFailure)
+					.onChange(async (value) => {
+						await this.plugin.updateSettings((settings) => {
+							settings.autoOpenUpdateLogOnFailure = value;
+						});
+					}));
 
 		containerEl.createEl("h3", {text: "Startup updates"});
 
-		new Setting(containerEl)
-			.setName("Update library on startup")
-			.setDesc("Run a full library refresh when the plugin loads, subject to throttle settings.")
-			.addToggle((toggle) => toggle
-				.setValue(this.plugin.settings.startupLibraryUpdateEnabled)
-				.onChange(async (value) => {
-					this.plugin.settings.startupLibraryUpdateEnabled = value;
-					await this.plugin.saveSettings();
-					this.display();
-				}));
-
-		new Setting(containerEl)
-			.setName("Startup update throttle")
-			.setDesc("How often startup refresh is allowed to run.")
-			.addDropdown((dropdown) => dropdown
-				.addOption("day", "Once per day")
-				.addOption("week", "Once per week")
-				.addOption("hours", "Custom hours")
-				.setValue(this.plugin.settings.startupLibraryUpdateThrottleMode)
-				.onChange(async (value) => {
-					if (value === "day" || value === "week" || value === "hours") {
-						this.plugin.settings.startupLibraryUpdateThrottleMode = value;
-						await this.plugin.saveSettings();
+			new Setting(containerEl)
+				.setName("Update library on startup")
+				.setDesc("Run a full library refresh when the plugin loads, subject to throttle settings.")
+				.addToggle((toggle) => toggle
+					.setValue(this.plugin.settings.startupLibraryUpdateEnabled)
+					.onChange(async (value) => {
+						await this.plugin.updateSettings((settings) => {
+							settings.startupLibraryUpdateEnabled = value;
+						});
 						this.display();
-					}
-				}));
+					}));
 
-		new Setting(containerEl)
-			.setName("Startup interval (hours)")
-			.setDesc("Used only when throttle is set to custom hours.")
-			.addText((text) => {
-				text.setPlaceholder("24");
-				text.setValue(String(this.plugin.settings.startupLibraryUpdateIntervalHours));
-				text.inputEl.disabled = this.plugin.settings.startupLibraryUpdateThrottleMode !== "hours";
-				text.onChange(async (value) => {
-					const parsed = Number.parseFloat(value);
-					if (Number.isFinite(parsed) && parsed > 0) {
-						this.plugin.settings.startupLibraryUpdateIntervalHours = parsed;
-					} else {
-						this.plugin.settings.startupLibraryUpdateIntervalHours = DEFAULT_SETTINGS.startupLibraryUpdateIntervalHours;
-					}
-					await this.plugin.saveSettings();
+			new Setting(containerEl)
+				.setName("Startup update throttle")
+				.setDesc("How often startup refresh is allowed to run.")
+				.addDropdown((dropdown) => dropdown
+					.addOption("day", "Once per day")
+					.addOption("week", "Once per week")
+					.addOption("hours", "Custom hours")
+					.setValue(this.plugin.settings.startupLibraryUpdateThrottleMode)
+					.onChange(async (value) => {
+						if (value === "day" || value === "week" || value === "hours") {
+							await this.plugin.updateSettings((settings) => {
+								settings.startupLibraryUpdateThrottleMode = value;
+							});
+							this.display();
+						}
+					}));
+
+			new Setting(containerEl)
+				.setName("Startup interval (hours)")
+				.setDesc("Used only when throttle is set to custom hours.")
+				.addText((text) => {
+					text.setPlaceholder("24");
+					text.setValue(String(this.plugin.settings.startupLibraryUpdateIntervalHours));
+					text.inputEl.disabled = this.plugin.settings.startupLibraryUpdateThrottleMode !== "hours";
+					text.onChange(async (value) => {
+						const parsed = Number.parseFloat(value);
+						await this.plugin.updateSettings((settings) => {
+							if (Number.isFinite(parsed) && parsed > 0) {
+								settings.startupLibraryUpdateIntervalHours = parsed;
+							} else {
+								settings.startupLibraryUpdateIntervalHours = DEFAULT_SETTINGS.startupLibraryUpdateIntervalHours;
+							}
+						});
+					});
 				});
-			});
 
 		containerEl.createEl("h3", {text: "Developer logging"});
 
-		new Setting(containerEl)
-			.setName("Enable plugin logging")
-			.setDesc(`Write structured plugin logs to: ${getPluginLogDirectory(this.app, this.plugin.manifest.id)}`)
-			.addToggle((toggle) => toggle
-				.setValue(this.plugin.settings.loggingEnabled)
-				.onChange(async (value) => {
-					this.plugin.settings.loggingEnabled = value;
-					await this.plugin.saveSettings();
-				}));
+			new Setting(containerEl)
+				.setName("Enable plugin logging")
+				.setDesc(`Write structured plugin logs to: ${getPluginLogDirectory(this.app, this.plugin.manifest.id)}`)
+				.addToggle((toggle) => toggle
+					.setValue(this.plugin.settings.loggingEnabled)
+					.onChange(async (value) => {
+						await this.plugin.updateSettings((settings) => {
+							settings.loggingEnabled = value;
+						});
+					}));
 
-		new Setting(containerEl)
-			.setName("Log level")
-			.setDesc("Minimum severity to persist.")
-			.addDropdown((dropdown) => dropdown
-				.addOption("debug", "Debug")
-				.addOption("info", "Info")
-				.addOption("warn", "Warn")
-				.addOption("error", "Error")
-				.setValue(this.plugin.settings.loggingLevel)
-				.onChange(async (value) => {
-					if (value === "debug" || value === "info" || value === "warn" || value === "error") {
-						this.plugin.settings.loggingLevel = value;
-						await this.plugin.saveSettings();
-					}
-				}));
+			new Setting(containerEl)
+				.setName("Log level")
+				.setDesc("Minimum severity to persist.")
+				.addDropdown((dropdown) => dropdown
+					.addOption("debug", "Debug")
+					.addOption("info", "Info")
+					.addOption("warn", "Warn")
+					.addOption("error", "Error")
+					.setValue(this.plugin.settings.loggingLevel)
+					.onChange(async (value) => {
+						if (value === "debug" || value === "info" || value === "warn" || value === "error") {
+							await this.plugin.updateSettings((settings) => {
+								settings.loggingLevel = value;
+							});
+						}
+					}));
 
-		new Setting(containerEl)
-			.setName("Max log files")
-			.setDesc("Maximum number of daily log files to keep.")
-			.addText((text) => text
-				.setPlaceholder("14")
-				.setValue(String(this.plugin.settings.loggingMaxFiles))
-				.onChange(async (value) => {
-					const parsed = Number.parseInt(value, 10);
-					this.plugin.settings.loggingMaxFiles = Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_SETTINGS.loggingMaxFiles;
-					await this.plugin.saveSettings();
-				}));
+			new Setting(containerEl)
+				.setName("Max log files")
+				.setDesc("Maximum number of daily log files to keep.")
+				.addText((text) => text
+					.setPlaceholder("14")
+					.setValue(String(this.plugin.settings.loggingMaxFiles))
+					.onChange(async (value) => {
+						const parsed = Number.parseInt(value, 10);
+						await this.plugin.updateSettings((settings) => {
+							settings.loggingMaxFiles = Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_SETTINGS.loggingMaxFiles;
+						});
+					}));
 
 		new Setting(containerEl)
 			.setName("Open plugin log")

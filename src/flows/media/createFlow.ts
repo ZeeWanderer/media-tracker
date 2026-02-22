@@ -1,9 +1,10 @@
-import {App, Notice, TFolder} from "obsidian";
+import {App, Notice, TFile, TFolder} from "obsidian";
 import {MediaTrackerSettings} from "../../settings";
 import {MediaItem, MediaType, NewMediaDraft} from "../../types";
 import {ANILIST_TYPES, IMDB_TYPES} from "../../domain/media/config";
-import {buildMediaFrontmatter, sanitizeMediaFileName, sanitizeNewMediaDraft} from "../../domain/media/draft";
-import {extractAnilistId, extractImdbId, getAnilistIdFromLinks, getImdbIdFromLinks} from "../../domain/media/links";
+import {sanitizeMediaFileName, sanitizeNewMediaDraft} from "../../domain/media/draft";
+import {extractAnilistId, extractImdbId, getAnilistIdFromLinks, getImdbIdFromLinks, setLinks} from "../../domain/media/links";
+import {updateMediaFrontmatter} from "../../domain/media/frontmatter";
 import {listTrackedMedia} from "./queryFlow";
 
 async function ensureFolder(app: App, folder: string) {
@@ -102,6 +103,60 @@ export function sanitizeMediaDraft(draft: NewMediaDraft): NewMediaDraft {
 	return sanitizeNewMediaDraft(draft);
 }
 
+function parseOptionalInteger(value: string | undefined): number | undefined {
+	if (!value) {
+		return undefined;
+	}
+	const parsed = Number.parseInt(value, 10);
+	if (!Number.isFinite(parsed)) {
+		return undefined;
+	}
+	return parsed;
+}
+
+async function applyDraftFrontmatter(
+	app: App,
+	filePath: string,
+	draft: NewMediaDraft,
+): Promise<TFile> {
+	const created = await app.vault.create(filePath, "---\n---\n");
+	const imdbId = resolveDraftImdbId(draft);
+	const anilistId = resolveDraftAnilistId(draft);
+	await updateMediaFrontmatter(app, created, (frontmatter) => {
+		frontmatter.type = draft.type;
+		frontmatter.status = draft.status;
+		frontmatter.title = draft.title;
+
+		if (draft.author) {
+			frontmatter.author = draft.author;
+		}
+		if (draft.progress) {
+			frontmatter.progress = draft.progress;
+		}
+
+		const season = parseOptionalInteger(draft.season);
+		const episode = parseOptionalInteger(draft.episode);
+		if (season !== undefined && episode !== undefined) {
+			frontmatter.season = season;
+			frontmatter.episode = episode;
+		}
+
+		const year = parseOptionalInteger(draft.year);
+		if (year !== undefined) {
+			frontmatter.year = year;
+		}
+
+		setLinks(frontmatter, draft.links ?? []);
+		if (imdbId) {
+			frontmatter.imdbId = imdbId;
+		}
+		if (anilistId !== undefined) {
+			frontmatter.anilistId = anilistId;
+		}
+	});
+	return created;
+}
+
 export function updateMediaDraftType(draft: NewMediaDraft, nextType: MediaType): NewMediaDraft {
 	return sanitizeNewMediaDraft({
 		...draft,
@@ -140,8 +195,7 @@ export async function createMediaNoteFromDraft(
 
 	await ensureFolder(app, workFolder);
 
-	const content = buildMediaFrontmatter(normalizedDraft);
-	const file = await app.vault.create(filePath, content);
+	const file = await applyDraftFrontmatter(app, filePath, normalizedDraft);
 	if (disambiguated) {
 		new Notice(`Created as "${workFolder}/${fileName}" because this title/type already existed.`);
 	}

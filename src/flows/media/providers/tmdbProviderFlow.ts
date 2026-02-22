@@ -2,7 +2,7 @@ import {App, TFile} from "obsidian";
 import {MediaTrackerSettings} from "../../../settings";
 import {MediaItem} from "../../../types";
 import {fetchTmdbLatestEpisode, findTmdbTvIdByImdb} from "../../../infra/api/tmdbApi";
-import {processMediaFrontmatter} from "../../../domain/media";
+import {updateMediaSnapshot} from "../../../domain/media";
 import {extractImdbId, getImdbIdFromLinks} from "../../../domain/media/links";
 
 export type TmdbRefreshResult = {
@@ -16,32 +16,6 @@ function delay(ms: number): Promise<void> {
 		return Promise.resolve();
 	}
 	return new Promise((resolve) => window.setTimeout(resolve, ms));
-}
-
-async function updateMediaFrontmatter(
-	app: App,
-	file: TFile,
-	updater: (frontmatter: Record<string, unknown>) => void,
-): Promise<void> {
-	await processMediaFrontmatter(app, file, updater);
-}
-
-function coerceSeasonEpisodes(value: unknown): Record<string, number> {
-	if (!value) {
-		return {};
-	}
-	if (typeof value === "object") {
-		return {...(value as Record<string, number>)};
-	}
-	if (typeof value === "string") {
-		try {
-			const parsed = JSON.parse(value) as Record<string, number>;
-			return {...parsed};
-		} catch {
-			return {};
-		}
-	}
-	return {};
 }
 
 function sanitizeSeasonEpisodes(map: Record<string, number>): Record<string, number> | undefined {
@@ -79,55 +53,49 @@ async function updateSeriesFrontmatter(
 		name?: string;
 	},
 ) {
-	await updateMediaFrontmatter(app, file, (frontmatter) => {
-		if (payload.tmdbId) {
-			frontmatter.tmdbId = payload.tmdbId;
+	await updateMediaSnapshot(app, file, (snapshot) => {
+		if (payload.tmdbId !== undefined) {
+			snapshot.tmdbId = payload.tmdbId;
 		}
-		frontmatter.tmdbLastChecked = payload.lastChecked;
-		const cleanedSeasonEpisodes = payload.seasonEpisodes
+		snapshot.tmdbLastChecked = payload.lastChecked;
+		let nextSeasonEpisodes = payload.seasonEpisodes
 			? sanitizeSeasonEpisodes(payload.seasonEpisodes)
-			: undefined;
-		const encodedSeasonEpisodes = cleanedSeasonEpisodes
-			? JSON.stringify(cleanedSeasonEpisodes)
-			: undefined;
-		if (cleanedSeasonEpisodes) {
-			frontmatter.tmdbSeasonEpisodes = encodedSeasonEpisodes;
-		} else if (payload.seasonEpisodeCount !== undefined) {
-			if (payload.season !== undefined) {
-				const current = coerceSeasonEpisodes(frontmatter.tmdbSeasonEpisodes);
-				current[String(payload.season)] = payload.seasonEpisodeCount;
-				frontmatter.tmdbSeasonEpisodes = JSON.stringify(current);
-			}
-		} else if (frontmatter.tmdbSeasonEpisodes && Object.keys(coerceSeasonEpisodes(frontmatter.tmdbSeasonEpisodes)).length === 0) {
-			delete frontmatter.tmdbSeasonEpisodes;
+			: sanitizeSeasonEpisodes(snapshot.tmdbSeasonEpisodes ?? {});
+		if (!payload.seasonEpisodes
+			&& payload.seasonEpisodeCount !== undefined
+			&& payload.season !== undefined) {
+			const current = {...(nextSeasonEpisodes ?? {})};
+			current[String(payload.season)] = payload.seasonEpisodeCount;
+			nextSeasonEpisodes = sanitizeSeasonEpisodes(current);
 		}
+		snapshot.tmdbSeasonEpisodes = nextSeasonEpisodes;
 		if (payload.season !== undefined) {
-			frontmatter.tmdbLatestSeason = payload.season;
+			snapshot.tmdbLatestSeason = payload.season;
 		}
 		if (payload.episode !== undefined) {
-			frontmatter.tmdbLatestEpisode = payload.episode;
+			snapshot.tmdbLatestEpisode = payload.episode;
 		}
 		if (payload.seasonEpisodeCount !== undefined) {
-			frontmatter.tmdbLatestSeasonEpisodes = payload.seasonEpisodeCount;
+			snapshot.tmdbLatestSeasonEpisodes = payload.seasonEpisodeCount;
 		}
 		if (payload.airDate) {
-			frontmatter.tmdbLatestAirDate = payload.airDate;
+			snapshot.tmdbLatestAirDate = payload.airDate;
 		}
 		if (payload.name) {
-			frontmatter.tmdbLatestName = payload.name;
+			snapshot.tmdbLatestName = payload.name;
 		}
 	});
 }
 
 async function storeSeriesTmdbId(app: App, file: TFile, tmdbId: number) {
-	await updateMediaFrontmatter(app, file, (frontmatter) => {
-		frontmatter.tmdbId = tmdbId;
+	await updateMediaSnapshot(app, file, (snapshot) => {
+		snapshot.tmdbId = tmdbId;
 	});
 }
 
 async function storeSeriesImdbId(app: App, file: TFile, imdbId: string) {
-	await updateMediaFrontmatter(app, file, (frontmatter) => {
-		frontmatter.imdbId = imdbId;
+	await updateMediaSnapshot(app, file, (snapshot) => {
+		snapshot.imdbId = imdbId;
 	});
 }
 

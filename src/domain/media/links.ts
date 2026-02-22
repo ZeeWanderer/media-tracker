@@ -271,3 +271,15 @@ export function getFaviconUrl(value: string): string | null {
 		return null;
 	}
 }
+
+export function getFaviconCacheKey(value: string): string | null {
+	const url = toLinkUrl(value);
+	if (!url) {
+		return null;
+	}
+	try {
+		return new URL(url).origin.toLowerCase();
+	} catch {
+		return null;
+	}
+}

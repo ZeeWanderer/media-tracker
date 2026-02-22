@@ -3,7 +3,7 @@ import MediaTrackerPlugin from "../main";
 import {MediaStatus, MediaType, NewMediaDraft, NewMediaFieldConfig} from "../types";
 import {MEDIA_STATUS_LABELS} from "./mediaStatusLabels";
 import {MEDIA_TYPE_LABELS} from "./mediaTypeConfig";
-import {ANILIST_TYPES, IMDB_TYPES, MEDIA_TYPES} from "../domain/media/config";
+import {ANILIST_TYPES, IMDB_TYPES, MEDIA_STATUSES, MEDIA_TYPES} from "../domain/media/config";
 import {createMediaNoteFromDraft, updateMediaDraftType} from "../flows/media";
 import {NEW_MEDIA_BASE_FIELDS, NEW_MEDIA_TYPE_FIELDS} from "./newMediaForm";
 import {extractImdbId} from "../domain/media/links";
@@ -105,7 +105,7 @@ export class NewMediaModal extends Modal {
 		new Setting(contentEl)
 			.setName("Status")
 			.addDropdown((dropdown) => {
-				const statuses: MediaStatus[] = ["planned", "active", "completed", "on-hold", "dropped"];
+				const statuses: MediaStatus[] = [...MEDIA_STATUSES];
 				for (const status of statuses) {
 					dropdown.addOption(status, MEDIA_STATUS_LABELS[status]);
 				}

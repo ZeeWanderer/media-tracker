@@ -1,6 +1,7 @@
 import {MediaItem, MediaStatus} from "../types";
-import {ANILIST_TYPES, NOVEL_PROGRESS_TYPES, SEASON_EPISODE_TYPES, TMDB_TYPES} from "../domain/media/config";
+import {MEDIA_STATUSES, NOVEL_PROGRESS_TYPES, SEASON_EPISODE_TYPES} from "../domain/media/config";
 import {extractImdbId, formatLinkLabel, getAnilistUrl, getFaviconUrl, toLinkUrl} from "../domain/media/links";
+import {buildLatestBadges, getNextProgressValue, type TrackerBadgeDescriptor} from "../domain/media/tracker";
 import {MEDIA_STATUS_LABELS} from "./mediaStatusLabels";
 import {MEDIA_TYPE_LABELS} from "./mediaTypeConfig";
 
@@ -48,7 +49,7 @@ export type RenderHandlers = {
 	getLinkIconUrl?: (value: string) => string | null;
 };
 
-const STATUS_OPTIONS: MediaStatus[] = ["planned", "active", "completed", "on-hold", "dropped"];
+const STATUS_OPTIONS: MediaStatus[] = [...MEDIA_STATUSES];
 
 export function renderTableHeader(
 	sortKey: SortKey,
@@ -290,233 +291,20 @@ function createPlusIcon(): SVGSVGElement {
 }
 
 function renderLatestBadge(item: MediaItemLike): HTMLElement | null {
-	if (ANILIST_TYPES.has(item.type)) {
-		if (item.type === "anime" && item.anilistId && item.anilistLastChecked === undefined) {
-			return null;
-		}
-		const anilistBadge = renderAniListBadge(item);
-		if (anilistBadge) {
-			return anilistBadge;
-		}
-	}
-	if (!TMDB_TYPES.has(item.type)) {
+	const descriptors = buildLatestBadges(item);
+	if (!descriptors.length) {
 		return null;
 	}
-	const latest = getLatestSeasonEpisode(item);
-	if (!latest) {
-		const announcedSeason = getAnnouncedSeason(item.tmdbSeasonEpisodes, 0);
-		if (announcedSeason === null) {
-			return null;
-		}
-		return createBadge(`S${announcedSeason} Ann.`);
-	}
-	const announcedSeason = getAnnouncedSeason(item.tmdbSeasonEpisodes, latest.season);
-	const latestBadge = createLatestBadge(item, latest);
-	if (item.tmdbLatestAirDate || item.tmdbLatestName) {
-		const parts = [];
-		if (item.tmdbLatestName) {
-			parts.push(item.tmdbLatestName);
-		}
-		if (item.tmdbLatestAirDate) {
-			parts.push(item.tmdbLatestAirDate);
-		}
-		setAttrSafe(latestBadge, "title", parts.join(" • "));
-	}
-	if (announcedSeason !== null) {
+	if (descriptors.length > 1) {
 		const group = document.createElement("span");
 		group.classList.add("media-tracker__badge-group");
-		group.appendChild(latestBadge);
-		group.appendChild(createBadge(`S${announcedSeason} Ann.`));
+		for (const descriptor of descriptors) {
+			group.appendChild(renderBadgeDescriptor(descriptor));
+		}
 		return group;
 	}
-	return latestBadge;
-}
-
-function renderAniListBadge(item: MediaItemLike): HTMLElement | null {
-	if (item.type === "manga") {
-		const chapters = item.anilistChapters;
-		const volumes = item.anilistVolumes;
-		if (chapters === undefined && volumes === undefined) {
-			return null;
-		}
-		const currentProgress = getCurrentMangaProgress(item);
-		const isNew = chapters !== undefined
-			? isMangaProgressBehindLatest(chapters, volumes, currentProgress)
-			: false;
-		if (chapters !== undefined && volumes !== undefined) {
-			return createBadge(`${isNew ? "New" : "Latest"} Vol ${volumes} · Ch ${chapters}`, isNew);
-		}
-		if (chapters !== undefined) {
-			return createBadge(`${isNew ? "New" : "Latest"} Ch ${chapters}`, isNew);
-		}
-		return createBadge(`Latest Vol ${volumes}`, false);
-	}
-	if (item.type !== "anime") {
-		return null;
-	}
-	const latest = item.anilistLatestEpisode ?? getAniListLatestFromNext(item.anilistNextEpisode);
-	if (!latest) {
-		const next = item.anilistNextEpisode;
-		if (next) {
-			const label = item.anilistSeason
-				? `S${item.anilistSeason}E${next} Ann.`
-				: `E${next} Ann.`;
-			return createBadge(label);
-		}
-		return null;
-	}
-	let isNew = false;
-	if (item.anilistSeason && item.season !== undefined) {
-		if (item.season < item.anilistSeason) {
-			isNew = true;
-		} else if (item.season === item.anilistSeason && item.episode !== undefined && latest > item.episode) {
-			isNew = true;
-		}
-	} else if (item.episode !== undefined && latest > item.episode) {
-		isNew = true;
-	}
-	const latestLabel = item.anilistSeason
-		? `S${item.anilistSeason}E${latest}`
-		: `E${latest}`;
-	const badge = createBadge(isNew ? `New ${latestLabel}` : `Latest ${latestLabel}`, isNew);
-	if (item.anilistNextAiringAt) {
-		const date = new Date(item.anilistNextAiringAt * 1000);
-		setAttrSafe(badge, "title", `Next airs ${date.toLocaleString()}`);
-	}
-	return badge;
-}
-
-function getAniListLatestFromNext(nextEpisode?: number): number | null {
-	if (!nextEpisode || nextEpisode <= 1) {
-		return null;
-	}
-	return nextEpisode - 1;
-}
-
-type MangaProgress =
-	| {kind: "chapter"; chapter: number}
-	| {kind: "volumeChapter"; volume: number; chapter: number};
-
-function parseChapterProgressValue(value: string): string | null {
-	const trimmed = value.trim();
-	if (!trimmed.length) {
-		return null;
-	}
-	if (/^\d+(?:\.\d+)?$/.test(trimmed)) {
-		return trimmed;
-	}
-	const prefixed = trimmed.match(/^(?:ch|chapter)\s*(\d+(?:\.\d+)?)$/i);
-	if (prefixed?.[1]) {
-		return prefixed[1];
-	}
-	const volumeChapter = trimmed.match(/^(?:vol|volume|v)\s*\d+\s*(?:ch|chapter|c)\s*(\d+(?:\.\d+)?)$/i);
-	if (volumeChapter?.[1]) {
-		return volumeChapter[1];
-	}
-	return null;
-}
-
-function parseMangaProgress(value: string): MangaProgress | null {
-	const trimmed = value.trim();
-	if (!trimmed.length) {
-		return null;
-	}
-	const volumeChapterMatch = trimmed.match(/^(?:vol|volume|v)\s*(\d+)\s*(?:ch|chapter|c)\s*(\d+(?:\.\d+)?)$/i);
-	if (volumeChapterMatch?.[1] && volumeChapterMatch?.[2]) {
-		const volume = Number.parseInt(volumeChapterMatch[1], 10);
-		const chapter = Number.parseFloat(volumeChapterMatch[2]);
-		if (Number.isFinite(volume) && Number.isFinite(chapter)) {
-			return {kind: "volumeChapter", volume, chapter};
-		}
-	}
-	const prefixedChapter = trimmed.match(/^(?:ch|chapter)\s*(\d+(?:\.\d+)?)$/i);
-	if (prefixedChapter?.[1]) {
-		const chapter = Number.parseFloat(prefixedChapter[1]);
-		if (Number.isFinite(chapter)) {
-			return {kind: "chapter", chapter};
-		}
-	}
-	if (/^\d+$/.test(trimmed)) {
-		const chapter = Number.parseInt(trimmed, 10);
-		if (Number.isFinite(chapter)) {
-			return {kind: "chapter", chapter};
-		}
-	}
-	const dotMatch = trimmed.match(/^(\d+)\.(\d+)$/);
-	if (dotMatch?.[1] && dotMatch?.[2]) {
-		// Treat values like "8.33" as volume/chapter shorthand to avoid false
-		// "New" badges when AniList only provides total chapters.
-		if (dotMatch[2].length >= 2) {
-			const volume = Number.parseInt(dotMatch[1], 10);
-			const chapter = Number.parseInt(dotMatch[2], 10);
-			if (Number.isFinite(volume) && Number.isFinite(chapter)) {
-				return {kind: "volumeChapter", volume, chapter};
-			}
-		}
-		const chapter = Number.parseFloat(trimmed);
-		if (Number.isFinite(chapter)) {
-			return {kind: "chapter", chapter};
-		}
-	}
-	return null;
-}
-
-function getCurrentMangaProgress(item: MediaItemLike): MangaProgress | undefined {
-	const candidates = [item.progressRaw, item.progressLabel, item.progress];
-	for (const candidate of candidates) {
-		if (!candidate) {
-			continue;
-		}
-		const parsed = parseMangaProgress(candidate);
-		if (!parsed) {
-			continue;
-		}
-		return parsed;
-	}
-	return undefined;
-}
-
-function isMangaProgressBehindLatest(
-	latestChapters: number,
-	latestVolumes: number | undefined,
-	currentProgress: MangaProgress | undefined,
-): boolean {
-	if (!currentProgress) {
-		return false;
-	}
-	if (currentProgress.kind === "chapter") {
-		return latestChapters > currentProgress.chapter;
-	}
-	// Prefer through-chapter numbering semantics for x.y progress.
-	if (latestChapters > currentProgress.chapter) {
-		return true;
-	}
-	if (latestChapters < currentProgress.chapter) {
-		return false;
-	}
-	// On equal chapter numbers, use volume as a tie-breaker when available.
-	if (latestVolumes === undefined) {
-		return false;
-	}
-	return latestVolumes > currentProgress.volume;
-}
-
-function createLatestBadge(
-	item: MediaItemLike,
-	latest: {season: number; episode: number},
-): HTMLElement {
-	let isNew = false;
-	if (item.season !== undefined && item.episode !== undefined) {
-		if (latest.season > item.season) {
-			isNew = true;
-		} else if (latest.season === item.season && latest.episode > item.episode) {
-			isNew = true;
-		}
-	}
-	const label = isNew
-		? `New S${latest.season}E${latest.episode}`
-		: `Latest S${latest.season}E${latest.episode}`;
-	return createBadge(label, isNew);
+	const [first] = descriptors;
+	return first ? renderBadgeDescriptor(first) : null;
 }
 
 function createBadge(text: string, isNew = false): HTMLElement {
@@ -529,22 +317,12 @@ function createBadge(text: string, isNew = false): HTMLElement {
 	return badge;
 }
 
-function getAnnouncedSeason(
-	seasonEpisodes: Record<string, number> | undefined,
-	latestSeason: number,
-): number | null {
-	if (!seasonEpisodes) {
-		return null;
+function renderBadgeDescriptor(descriptor: TrackerBadgeDescriptor): HTMLElement {
+	const badge = createBadge(descriptor.text, descriptor.isNew);
+	if (descriptor.title) {
+		setAttrSafe(badge, "title", descriptor.title);
 	}
-	const announced = Object.entries(seasonEpisodes)
-		.map(([key, value]) => ({season: Number(key), episodes: Number(value)}))
-		.filter((entry) => Number.isFinite(entry.season) && Number.isFinite(entry.episodes))
-		.filter((entry) => entry.episodes === 0 && entry.season > latestSeason)
-		.map((entry) => entry.season);
-	if (!announced.length) {
-		return null;
-	}
-	return Math.max(...announced);
+	return badge;
 }
 
 function renderLinks(container: HTMLElement, item: MediaItemLike, handlers: RenderHandlers): number {
@@ -610,105 +388,6 @@ function renderLinkButton(
 		}
 	});
 	return true;
-}
-
-export function getNextProgressValue(item: MediaItemLike): string | null {
-	if (SEASON_EPISODE_TYPES.has(item.type) && item.season !== undefined && item.episode !== undefined) {
-		const seasonKey = String(item.season);
-		const isLatestSeason = item.tmdbLatestSeason !== undefined
-			&& item.tmdbLatestEpisode !== undefined
-			&& item.season === item.tmdbLatestSeason;
-		const anilistSeasonEpisodes = item.type === "anime" ? item.anilistSeasonEpisodes : undefined;
-		const anilistSeasonCount = anilistSeasonEpisodes?.[seasonKey];
-		const anilistLatestEpisode = item.type === "anime" ? item.anilistLatestEpisode : undefined;
-		const knownCurrentSeasonEpisodeCount = anilistSeasonCount ?? (isLatestSeason
-			? item.tmdbLatestEpisode
-			: item.tmdbSeasonEpisodes?.[seasonKey]);
-		const fallbackSeasonEpisodeCount = anilistLatestEpisode ?? item.tmdbLatestSeasonEpisodes;
-		const seasonEpisodeCount = knownCurrentSeasonEpisodeCount ?? (item.season > 0 ? fallbackSeasonEpisodeCount : undefined);
-
-		// Do not auto-advance "season 0" unless we actually know that season's episode count.
-		if (item.season <= 0 && seasonEpisodeCount === undefined) {
-			return null;
-		}
-		// A known count of 0 means announced season with no released episodes yet.
-		if (seasonEpisodeCount === 0) {
-			return null;
-		}
-
-		if (seasonEpisodeCount !== undefined && item.episode >= seasonEpisodeCount) {
-			if (item.type === "anime" && anilistSeasonCount) {
-				if (item.anilistSeasonTotal && item.season < item.anilistSeasonTotal) {
-					return `S${item.season + 1}E1`;
-				}
-				return null;
-			}
-			if (anilistLatestEpisode) {
-				return null;
-			}
-			return isLatestSeason ? null : `S${item.season + 1}E1`;
-		}
-		return `S${item.season}E${item.episode + 1}`;
-	}
-	const raw = item.progressRaw?.trim();
-	const rawChapter = raw ? parseChapterProgressValue(raw) : null;
-	if (rawChapter) {
-		return incrementNumericString(rawChapter);
-	}
-	const label = item.progressLabel?.trim() ?? item.progress?.trim();
-	const labelChapter = label ? parseChapterProgressValue(label) : null;
-	if (!labelChapter) {
-		return null;
-	}
-	return incrementNumericString(labelChapter);
-}
-
-function getLatestSeasonEpisode(item: MediaItemLike): {season: number; episode: number} | null {
-	if (item.tmdbLatestSeason !== undefined && item.tmdbLatestEpisode !== undefined) {
-		return {season: item.tmdbLatestSeason, episode: item.tmdbLatestEpisode};
-	}
-	const map = item.tmdbSeasonEpisodes;
-	if (!map) {
-		return null;
-	}
-	const seasons = Object.entries(map)
-		.map(([key, value]) => ({season: Number(key), episodes: Number(value)}))
-		.filter((entry) => Number.isFinite(entry.season) && Number.isFinite(entry.episodes) && entry.episodes > 0)
-		.map((entry) => entry.season);
-	if (!seasons.length) {
-		return null;
-	}
-	const latestSeason = Math.max(...seasons);
-	const latestEpisode = map[String(latestSeason)];
-	if (latestEpisode === undefined || latestEpisode <= 0) {
-		return null;
-	}
-	return {season: latestSeason, episode: latestEpisode};
-}
-
-function incrementNumericString(value: string): string {
-	const decimalMatch = value.match(/^(\d+)\.(\d+)$/);
-	if (decimalMatch?.[1] && decimalMatch[2]) {
-		const whole = Number.parseInt(decimalMatch[1], 10);
-		const fractional = decimalMatch[2];
-		if (Number.isNaN(whole)) {
-			return value;
-		}
-		// Manga special chapters are usually ".5", and the next canonical chapter is the next integer.
-		if (fractional === "5") {
-			return String(whole + 1);
-		}
-		const next = Number.parseInt(fractional, 10);
-		if (Number.isNaN(next)) {
-			return value;
-		}
-		return `${whole}.${next + 1}`;
-	}
-	const next = Number.parseInt(value, 10);
-	if (Number.isNaN(next)) {
-		return value;
-	}
-	return String(next + 1);
 }
 
 function setAttrSafe(el: HTMLElement, name: string, value: string) {

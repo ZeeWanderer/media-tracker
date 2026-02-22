@@ -10,6 +10,7 @@ type RefreshItemResult = {
 	provider: UpdateProvider;
 	status: UpdateLogEntry["status"];
 	message: string;
+	providersChecked: RefreshQueue[];
 };
 
 type RefreshQueue = "anilist" | "tmdb";
@@ -17,6 +18,8 @@ type QueuedRefreshTarget = {
 	item: MediaItem;
 	queue: RefreshQueue;
 };
+
+const RUN_UPDATE_INTERVAL_MS = 250;
 
 function toEntry(item: MediaItem, result: RefreshItemResult): UpdateLogEntry {
 	return {
@@ -34,6 +37,7 @@ function mapProviderResult(result: AniListRefreshResult | TmdbRefreshResult): Re
 		provider: result.provider,
 		status: result.status,
 		message: result.message,
+		providersChecked: [result.provider],
 	};
 }
 
@@ -53,6 +57,7 @@ function toUnexpectedFailure(queue: RefreshQueue, error: unknown): RefreshItemRe
 		provider: queue,
 		status: "failed",
 		message: `Unexpected refresh error: ${detail}`,
+		providersChecked: [queue],
 	};
 }
 
@@ -90,29 +95,46 @@ function compareTargetsByRefreshPriority(a: QueuedRefreshTarget, b: QueuedRefres
 
 export async function refreshTrackedMediaLatest(
 	app: App,
-	settings: MediaTrackerSettings,
+	settings: Readonly<MediaTrackerSettings>,
 	item: MediaItem,
 ): Promise<RefreshItemResult> {
 	const tmdbMinDelayMs = settings.tmdbMinIntervalMs;
 	const anilistMinDelayMs = 0;
 	if (item.type === "manga") {
-		return mapProviderResult(await refreshAniListLatest(app, item, anilistMinDelayMs));
+		const result = mapProviderResult(await refreshAniListLatest(app, item, anilistMinDelayMs));
+		return {
+			...result,
+			providersChecked: ["anilist"],
+		};
 	}
 	if (item.type === "anime") {
 		const aniListResult = await refreshAniListLatest(app, item, anilistMinDelayMs);
 		const hasTmdbIdentity = Boolean(item.tmdbId || item.imdbId || getImdbIdFromLinks(item.links ?? []));
 		if (aniListResult.status === "failed" && TMDB_TYPES.has(item.type) && hasTmdbIdentity) {
-			return mapProviderResult(await refreshTmdbSeriesLatest(app, settings, item, tmdbMinDelayMs));
+			const result = mapProviderResult(await refreshTmdbSeriesLatest(app, settings, item, tmdbMinDelayMs));
+			return {
+				...result,
+				providersChecked: ["anilist", "tmdb"],
+			};
 		}
-		return mapProviderResult(aniListResult);
+		const result = mapProviderResult(aniListResult);
+		return {
+			...result,
+			providersChecked: ["anilist"],
+		};
 	}
 	if (TMDB_TYPES.has(item.type)) {
-		return mapProviderResult(await refreshTmdbSeriesLatest(app, settings, item, tmdbMinDelayMs));
+		const result = mapProviderResult(await refreshTmdbSeriesLatest(app, settings, item, tmdbMinDelayMs));
+		return {
+			...result,
+			providersChecked: ["tmdb"],
+		};
 	}
 	return {
 		provider: "none",
 		status: "skipped",
 		message: `No refresh provider for ${item.type}.`,
+		providersChecked: [],
 	};
 }
 
@@ -122,7 +144,7 @@ export function formatRefreshRunSummary(run: UpdateLogRun): string {
 
 export async function refreshTrackedMedia(
 	app: App,
-	settings: MediaTrackerSettings,
+	settings: Readonly<MediaTrackerSettings>,
 	items: MediaItem[],
 	onProgress?: (current: number, total: number) => void,
 	onRunUpdate?: (run: UpdateLogRun) => void,
@@ -145,19 +167,22 @@ export async function refreshTrackedMedia(
 	const tmdbTargets = targets
 		.filter((target) => target.queue === "tmdb")
 		.map((target) => target.item);
+	let anilistTotal = anilistTargets.length;
+	let tmdbTotal = tmdbTargets.length;
 	let anilistCompleted = 0;
 	let tmdbCompleted = 0;
+	let lastRunUpdateAt = 0;
 	const buildProviderProgress = () => ({
 		anilist: {
-			total: anilistTargets.length,
+			total: anilistTotal,
 			completed: anilistCompleted,
 		},
 		tmdb: {
-			total: tmdbTargets.length,
+			total: tmdbTotal,
 			completed: tmdbCompleted,
 		},
 	});
-	const buildSnapshot = (): UpdateLogRun => {
+	const buildSnapshot = (copyEntries = false): UpdateLogRun => {
 		const now = Date.now();
 		return {
 			startedAt,
@@ -169,11 +194,24 @@ export async function refreshTrackedMedia(
 			failed,
 			skipped,
 			providerProgress: buildProviderProgress(),
-			entries: [...entries],
+			entries: copyEntries ? [...entries] : entries,
 		};
 	};
+
+	const emitRunUpdate = (force = false) => {
+		if (!onRunUpdate) {
+			return;
+		}
+		const now = Date.now();
+		if (!force && now - lastRunUpdateAt < RUN_UPDATE_INTERVAL_MS) {
+			return;
+		}
+		lastRunUpdateAt = now;
+		onRunUpdate(buildSnapshot(false));
+	};
+
 	onProgress?.(0, total);
-	onRunUpdate?.(buildSnapshot());
+	emitRunUpdate(true);
 
 	const commitItemResult = (queue: RefreshQueue, item: MediaItem, result: RefreshItemResult) => {
 		entries.push(toEntry(item, result));
@@ -192,14 +230,24 @@ export async function refreshTrackedMedia(
 				skipped += 1;
 				break;
 		}
-		if (queue === "anilist") {
-			anilistCompleted += 1;
-		} else {
-			tmdbCompleted += 1;
+		for (const provider of result.providersChecked) {
+			if (provider === "anilist") {
+				anilistCompleted += 1;
+				if (queue !== "anilist") {
+					anilistTotal += 1;
+				}
+				continue;
+			}
+			if (provider === "tmdb") {
+				tmdbCompleted += 1;
+				if (queue !== "tmdb") {
+					tmdbTotal += 1;
+				}
+			}
 		}
 		completed += 1;
 		onProgress?.(completed, total);
-		onRunUpdate?.(buildSnapshot());
+		emitRunUpdate();
 	};
 
 	const runQueue = async (queue: RefreshQueue, queueItems: MediaItem[]) => {
@@ -218,15 +266,15 @@ export async function refreshTrackedMedia(
 		runQueue("tmdb", tmdbTargets),
 	]);
 
+	emitRunUpdate(true);
 	if (completed !== total) {
 		onProgress?.(total, total);
-		onRunUpdate?.(buildSnapshot());
+		emitRunUpdate(true);
 	}
 
-	settings.tmdbLastSync = Date.now();
 	const finishedAt = Date.now();
 	return {
-		...buildSnapshot(),
+		...buildSnapshot(true),
 		finishedAt,
 		durationMs: Math.max(0, finishedAt - startedAt),
 	};

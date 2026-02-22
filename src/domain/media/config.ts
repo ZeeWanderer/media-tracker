@@ -1,7 +1,8 @@
-import type {MediaStatus, MediaType} from "../../types";
+export const MEDIA_TYPES = ["novel", "manga", "series", "anime", "movie"] as const;
+export type MediaType = typeof MEDIA_TYPES[number];
 
-export const MEDIA_TYPES: MediaType[] = ["novel", "manga", "series", "anime", "movie"];
-export const MEDIA_STATUSES: MediaStatus[] = ["planned", "active", "completed", "on-hold", "dropped"];
+export const MEDIA_STATUSES = ["planned", "active", "completed", "on-hold", "dropped"] as const;
+export type MediaStatus = typeof MEDIA_STATUSES[number];
 
 export const MEDIA_TYPES_SET = new Set<MediaType>(MEDIA_TYPES);
 export const MEDIA_STATUSES_SET = new Set<MediaStatus>(MEDIA_STATUSES);

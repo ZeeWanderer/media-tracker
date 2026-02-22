@@ -22,6 +22,7 @@ const LOG_DIR = "logs";
 const LOG_FILE_EXT = ".ndjson";
 const DEFAULT_MAX_LOG_FILES = 14;
 const DEFAULT_MAX_RECENT_ENTRIES = 1000;
+const LOG_CLEANUP_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
 const LEVEL_VALUE: Record<PluginLogLevel, number> = {
 	debug: 10,
@@ -127,6 +128,7 @@ export class PluginLogger {
 	private level: PluginLogLevel;
 	private maxLogFiles: number;
 	private maxRecentEntries: number;
+	private nextCleanupAt = 0;
 
 	constructor(
 		private readonly app: App,
@@ -149,6 +151,7 @@ export class PluginLogger {
 		}
 		if (typeof options.maxLogFiles === "number" && Number.isFinite(options.maxLogFiles)) {
 			this.maxLogFiles = Math.max(1, Math.floor(options.maxLogFiles));
+			this.nextCleanupAt = 0;
 		}
 		if (typeof options.maxRecentEntries === "number" && Number.isFinite(options.maxRecentEntries)) {
 			this.maxRecentEntries = Math.max(100, Math.floor(options.maxRecentEntries));
@@ -219,19 +222,31 @@ export class PluginLogger {
 			await ensureDirectory(this.adapter, directory);
 			const path = getLogFilePath(this.app, this.pluginId, new Date());
 			const exists = await this.adapter.exists(path);
-			if (exists) {
-				await this.adapter.append(path, payload);
-			} else {
-				await this.adapter.write(path, payload);
-			}
-			await this.cleanupOldLogFiles();
-		} catch (error) {
-			console.error(error);
-		} finally {
+				if (exists) {
+					await this.adapter.append(path, payload);
+				} else {
+					await this.adapter.write(path, payload);
+				}
+				await this.maybeCleanupOldLogFiles();
+			} catch (error) {
+				console.error(error);
+			} finally {
 			this.flushing = false;
 			if (this.queue.length) {
 				this.scheduleFlush();
 			}
+		}
+	}
+
+	private async maybeCleanupOldLogFiles() {
+		const now = Date.now();
+		if (now < this.nextCleanupAt) {
+			return;
+		}
+		try {
+			await this.cleanupOldLogFiles();
+		} finally {
+			this.nextCleanupAt = Date.now() + LOG_CLEANUP_INTERVAL_MS;
 		}
 	}
 

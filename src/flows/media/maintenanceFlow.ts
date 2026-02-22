@@ -1,20 +1,12 @@
 import {App, TFile} from "obsidian";
 import {MediaStatus, MediaType} from "../../types";
-import {cleanMediaFrontmatter, processMediaFrontmatter} from "../../domain/media";
-import {SEASON_EPISODE_TYPES} from "../../domain/media/config";
+import {cleanMediaFrontmatter, normalizeMediaFilesFrontmatter, updateMediaFrontmatter, updateMediaSnapshot} from "../../domain/media";
 import {collectLinks, extractAnilistId, normalizeStoredLink, setLinks} from "../../domain/media/links";
-
-async function updateMediaFrontmatter(
-	app: App,
-	file: TFile,
-	updater: (frontmatter: Record<string, unknown>) => void,
-): Promise<void> {
-	await processMediaFrontmatter(app, file, updater);
-}
+import {applyProgressInputToFields} from "../../domain/media/progress";
 
 export async function updateMediaNoteStatus(app: App, file: TFile, status: MediaStatus): Promise<void> {
-	await updateMediaFrontmatter(app, file, (frontmatter) => {
-		frontmatter.status = status;
+	await updateMediaSnapshot(app, file, (snapshot) => {
+		snapshot.status = status;
 	});
 }
 
@@ -24,48 +16,23 @@ export async function updateMediaNoteProgress(
 	type: MediaType,
 	value: string,
 ): Promise<void> {
-	const trimmed = value.trim();
-	if (SEASON_EPISODE_TYPES.has(type)) {
-		await updateMediaFrontmatter(app, file, (frontmatter) => {
-			if (!trimmed.length) {
-				delete frontmatter.season;
-				delete frontmatter.episode;
-				return;
-			}
-
-			const seMatch = trimmed.match(/S\s*(\d+)\s*E\s*(\d+)/i);
-			const altMatch = trimmed.match(/(\d+)\s*x\s*(\d+)/i);
-			const match = seMatch ?? altMatch;
-			if (!match || !match[1] || !match[2]) {
-				return;
-			}
-			frontmatter.season = Number.parseInt(match[1], 10);
-			frontmatter.episode = Number.parseInt(match[2], 10);
+	await updateMediaSnapshot(app, file, (snapshot) => {
+		const applied = applyProgressInputToFields(type, value, {
+			progress: snapshot.progress,
+			progressLabel: snapshot.progressLabel,
+			progressUnit: snapshot.progressUnit,
+			season: snapshot.season,
+			episode: snapshot.episode,
+			year: snapshot.year,
 		});
-		return;
-	}
-	await updateMediaFrontmatter(app, file, (frontmatter) => {
-		if (!trimmed.length) {
-			delete frontmatter.progress;
-			delete frontmatter.progressLabel;
-			delete frontmatter.progressUnit;
+		if (!applied.accepted) {
 			return;
 		}
-
-		const chapterMatch = trimmed.match(/^(?:ch|chapter)\s+(.+)$/i);
-		const volumeChapterMatch = trimmed.match(/^(?:vol|volume|v)\s*\d+\s*(?:ch|chapter|c)\s*(\d+(?:\.\d+)?)$/i);
-		const chapterValue = chapterMatch?.[1]?.trim() ?? volumeChapterMatch?.[1]?.trim();
-		const numeric = chapterValue ?? trimmed;
-		if (/^\d+(?:\.\d+)?$/.test(numeric)) {
-			frontmatter.progress = numeric;
-			frontmatter.progressUnit = "ch";
-			delete frontmatter.progressLabel;
-			return;
-		}
-
-		frontmatter.progressLabel = trimmed;
-		delete frontmatter.progress;
-		delete frontmatter.progressUnit;
+		snapshot.progress = applied.next.progress;
+		snapshot.progressLabel = applied.next.progressLabel;
+		snapshot.progressUnit = applied.next.progressUnit;
+		snapshot.season = applied.next.season;
+		snapshot.episode = applied.next.episode;
 	});
 }
 
@@ -97,16 +64,7 @@ export async function normalizeMediaNoteFrontmatter(app: App, file: TFile): Prom
 }
 
 export async function normalizeAllMediaNoteFrontmatter(app: App, files: TFile[]): Promise<number> {
-	let changed = 0;
-	for (const file of files) {
-		const before = JSON.stringify(app.metadataCache.getFileCache(file)?.frontmatter ?? {});
-		await cleanMediaFrontmatter(app, file);
-		const after = JSON.stringify(app.metadataCache.getFileCache(file)?.frontmatter ?? {});
-		if (before !== after) {
-			changed += 1;
-		}
-	}
-	return changed;
+	return normalizeMediaFilesFrontmatter(app, files);
 }
 
 export async function deleteMediaNote(app: App, file: TFile): Promise<void> {
