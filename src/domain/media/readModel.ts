@@ -2,6 +2,7 @@ import {App, TFile, TFolder} from "obsidian";
 import {MEDIA_STATUSES, MEDIA_TYPES, type MediaStatus} from "./config";
 import {decodeMediaSnapshot} from "./frontmatter";
 import {buildProgressDisplay} from "./progress";
+import {normalizeVaultFolderOrDefault} from "../../pathUtils";
 import type {MediaItem} from "./models";
 
 export type MediaReadQuery = {
@@ -101,11 +102,6 @@ export function getTitleSortKey(title: string): string {
 	return trimmed.replace(/^the\s+/i, "");
 }
 
-function normalizeBaseFolderPath(value: string | undefined): string {
-	const trimmed = normalizeString(value) ?? "Media";
-	return trimmed.replace(/^\/+|\/+$/g, "");
-}
-
 function collectMarkdownFilesInFolder(root: TFolder): TFile[] {
 	const files: TFile[] = [];
 	const pending: TFolder[] = [root];
@@ -130,7 +126,7 @@ function collectMarkdownFilesInFolder(root: TFolder): TFile[] {
 }
 
 export function listMediaItems(app: App, query: MediaReadQuery): MediaItem[] {
-	const baseFolder = normalizeBaseFolderPath(query.mediaFolder);
+	const baseFolder = normalizeVaultFolderOrDefault(query.mediaFolder, "Media");
 	const root = app.vault.getAbstractFileByPath(baseFolder);
 	if (!(root instanceof TFolder)) {
 		return [];

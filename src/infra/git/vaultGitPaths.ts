@@ -1,6 +1,7 @@
 import {App, FileSystemAdapter} from "obsidian";
 import * as path from "path";
 import {getPluginCacheDirectory, getPluginLogsDirectory, getPluginRootPath} from "../storage/pluginPaths";
+import {normalizeVaultRelativePath} from "../../pathUtils";
 
 export type RepoScopePath = {
 	repoRelativePath: string;
@@ -21,12 +22,6 @@ function normalizePathValue(value: string): string {
 		return normalized.toLowerCase();
 	}
 	return normalized;
-}
-
-function normalizeVaultRelativePath(value: string): string {
-	return value
-		.replace(/\\/g, "/")
-		.replace(/^\/+|\/+$/g, "");
 }
 
 export function getRepoPathWithinVault(vaultPath: string, repoRoot: string): string | null {

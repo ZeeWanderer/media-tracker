@@ -1,7 +1,7 @@
 import {App, Notice, Plugin, PluginSettingTab, Setting, TextComponent} from "obsidian";
 import {getPluginLogDirectory} from "./infra/logging/pluginLogger";
 import {openPluginLog} from "./ui/pluginLogView";
-import {ensurePluginGitignoreEntries} from "./infra/git/vaultGit";
+import {ensurePluginGitignoreEntries} from "./infra/git/gitignoreFlow";
 import {DEFAULT_SETTINGS, MediaTrackerSettings} from "./core/pluginSettingsModel";
 import type {PluginLogger} from "./infra/logging/pluginLogger";
 

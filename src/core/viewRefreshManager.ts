@@ -1,5 +1,6 @@
 import {TAbstractFile, TFile, TFolder} from "obsidian";
 import {normalizeMediaFolder} from "./pluginSettings";
+import {normalizeVaultPathForCompare} from "../pathUtils";
 
 type ViewRefreshManagerDeps = {
 	getMediaFolder: () => string;
@@ -131,15 +132,8 @@ export class ViewRefreshManager {
 	}
 
 	private isPathWithinMediaFolder(path: string): boolean {
-		const normalizedPath = this.normalizeVaultPath(path);
-		const mediaFolder = this.normalizeVaultPath(normalizeMediaFolder(this.deps.getMediaFolder()));
+		const normalizedPath = normalizeVaultPathForCompare(path);
+		const mediaFolder = normalizeVaultPathForCompare(normalizeMediaFolder(this.deps.getMediaFolder()));
 		return normalizedPath === mediaFolder || normalizedPath.startsWith(`${mediaFolder}/`);
-	}
-
-	private normalizeVaultPath(value: string): string {
-		return value
-			.replace(/\\/g, "/")
-			.replace(/^\/+|\/+$/g, "")
-			.toLowerCase();
 	}
 }

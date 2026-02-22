@@ -148,24 +148,12 @@ export class UpdateRunState {
 		if (!run) {
 			return null;
 		}
-		return {
-			startedAt: run.startedAt,
-			finishedAt: run.finishedAt,
-			durationMs: run.durationMs,
-			total: run.total,
-			updated: run.updated,
-			unchanged: run.unchanged,
-			failed: run.failed,
-			skipped: run.skipped,
-			providerProgress: run.providerProgress
-				? {
-					anilist: {...run.providerProgress.anilist},
-					tmdb: {...run.providerProgress.tmdb},
-				}
-				: undefined,
+		return this.cloneUpdateRun({
+			...run,
 			state: "in-progress",
-			entries: [],
-		};
+			// Keep checkpoint payload bounded while preserving recent per-item detail.
+			entries: run.entries.slice(-MAX_ENTRIES_PER_RUN),
+		});
 	}
 
 	private getProcessedCount(run: UpdateLogRun): number {

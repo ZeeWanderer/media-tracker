@@ -193,12 +193,71 @@ function headerLookup(headers: Record<string, string> | undefined, name: string)
 	return undefined;
 }
 
+class FaviconMemoryStore {
+	private readonly entries = new Map<string, FaviconMemoryEntry>();
+	private bytes = 0;
+
+	constructor(
+		private readonly maxEntries: number,
+		private readonly maxBytes: number,
+	) {}
+
+	clear() {
+		this.entries.clear();
+		this.bytes = 0;
+	}
+
+	get(key: string): string | null {
+		const entry = this.entries.get(key);
+		if (!entry) {
+			return null;
+		}
+		this.entries.delete(key);
+		this.entries.set(key, entry);
+		return entry.url;
+	}
+
+	set(key: string, url: string, byteLength: number) {
+		const previous = this.entries.get(key);
+		if (previous) {
+			this.bytes -= previous.byteLength;
+			this.entries.delete(key);
+		}
+		const normalizedSize = Math.max(1, Math.floor(byteLength));
+		this.entries.set(key, {url, byteLength: normalizedSize});
+		this.bytes += normalizedSize;
+		this.enforceLimits();
+	}
+
+	private enforceLimits() {
+		while (this.entries.size > this.maxEntries) {
+			this.dropOldest();
+		}
+		while (this.bytes > this.maxBytes && this.entries.size > 1) {
+			this.dropOldest();
+		}
+		if (this.bytes < 0) {
+			this.bytes = 0;
+		}
+	}
+
+	private dropOldest() {
+		const oldest = this.entries.keys().next();
+		if (oldest.done) {
+			return;
+		}
+		const oldestKey = oldest.value;
+		const entry = this.entries.get(oldestKey);
+		if (entry) {
+			this.bytes -= entry.byteLength;
+		}
+		this.entries.delete(oldestKey);
+	}
+}
+
 export class DesktopFaviconCache {
 	private readonly adapter: DataAdapter;
-	private readonly maxMemoryEntries: number;
-	private readonly maxMemoryBytes: number;
-	private readonly memory = new Map<string, FaviconMemoryEntry>();
-	private memoryBytes = 0;
+	private readonly memoryStore: FaviconMemoryStore;
 	private diskIndex: FaviconDiskIndex | null = null;
 	private diskIndexPromise: Promise<FaviconDiskIndex> | null = null;
 	private readonly inflight = new Map<string, Promise<string | null>>();
@@ -209,8 +268,9 @@ export class DesktopFaviconCache {
 		options: DesktopFaviconCacheOptions = {},
 	) {
 		this.adapter = app.vault.adapter;
-		this.maxMemoryEntries = Math.max(8, Math.floor(options.maxMemoryEntries ?? DEFAULT_MAX_MEMORY_ENTRIES));
-		this.maxMemoryBytes = Math.max(64 * 1024, Math.floor(options.maxMemoryBytes ?? DEFAULT_MAX_MEMORY_BYTES));
+		const maxEntries = Math.max(8, Math.floor(options.maxMemoryEntries ?? DEFAULT_MAX_MEMORY_ENTRIES));
+		const maxBytes = Math.max(64 * 1024, Math.floor(options.maxMemoryBytes ?? DEFAULT_MAX_MEMORY_BYTES));
+		this.memoryStore = new FaviconMemoryStore(maxEntries, maxBytes);
 	}
 
 	dispose() {
@@ -221,8 +281,7 @@ export class DesktopFaviconCache {
 	}
 
 	clearMemory() {
-		this.memory.clear();
-		this.memoryBytes = 0;
+		this.memoryStore.clear();
 	}
 
 	getMemoryCachedFavicon(link: string): string | null {
@@ -259,64 +318,11 @@ export class DesktopFaviconCache {
 	}
 
 	private getMemoryCachedByKey(key: string): string | null {
-		const entry = this.memory.get(key);
-		if (!entry) {
-			return null;
-		}
-		this.memory.delete(key);
-		this.memory.set(key, entry);
-		return entry.url;
+		return this.memoryStore.get(key);
 	}
 
 	private storeMemoryEntry(key: string, url: string, byteLength: number) {
-		const previous = this.memory.get(key);
-		if (previous) {
-			this.memoryBytes -= previous.byteLength;
-			this.memory.delete(key);
-		}
-
-		const normalizedSize = Math.max(1, Math.floor(byteLength));
-		this.memory.set(key, {url, byteLength: normalizedSize});
-		this.memoryBytes += normalizedSize;
-		this.enforceMemoryLimit();
-	}
-
-	private enforceMemoryLimit() {
-		while (this.memory.size > this.maxMemoryEntries) {
-			const oldest = this.getOldestMemoryKey();
-			if (!oldest) {
-				break;
-			}
-			const entry = this.memory.get(oldest);
-			if (entry) {
-				this.memoryBytes -= entry.byteLength;
-			}
-			this.memory.delete(oldest);
-		}
-
-		while (this.memoryBytes > this.maxMemoryBytes && this.memory.size > 1) {
-			const oldest = this.getOldestMemoryKey();
-			if (!oldest) {
-				break;
-			}
-			const entry = this.memory.get(oldest);
-			if (entry) {
-				this.memoryBytes -= entry.byteLength;
-			}
-			this.memory.delete(oldest);
-		}
-
-		if (this.memoryBytes < 0) {
-			this.memoryBytes = 0;
-		}
-	}
-
-	private getOldestMemoryKey(): string | null {
-		const oldest = this.memory.keys().next();
-		if (oldest.done) {
-			return null;
-		}
-		return oldest.value;
+		this.memoryStore.set(key, url, byteLength);
 	}
 
 	private async loadOrFetchFavicon(origin: string): Promise<string | null> {

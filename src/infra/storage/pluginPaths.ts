@@ -1,35 +1,24 @@
 import {App} from "obsidian";
-
-function normalizePathSegment(value: string): string {
-	return value
-		.replace(/\\/g, "/")
-		.replace(/^\/+|\/+$/g, "");
-}
-
-function joinPath(base: string, segment: string): string {
-	const normalizedBase = normalizePathSegment(base);
-	const normalizedSegment = normalizePathSegment(segment);
-	return normalizedSegment.length ? `${normalizedBase}/${normalizedSegment}` : normalizedBase;
-}
+import {joinVaultRelativePath, normalizeVaultRelativePath} from "../../pathUtils";
 
 export function getPluginRootPath(app: App, pluginId: string): string {
-	const configDir = normalizePathSegment(app.vault.configDir);
-	const pluginsRoot = joinPath(configDir, "plugins");
-	return joinPath(pluginsRoot, pluginId);
+	const configDir = normalizeVaultRelativePath(app.vault.configDir);
+	const pluginsRoot = joinVaultRelativePath(configDir, "plugins");
+	return joinVaultRelativePath(pluginsRoot, pluginId);
 }
 
 export function getPluginCacheDirectory(app: App, pluginId: string): string {
-	return joinPath(getPluginRootPath(app, pluginId), "cache");
+	return joinVaultRelativePath(getPluginRootPath(app, pluginId), "cache");
 }
 
 export function getPluginCachePath(app: App, pluginId: string, relativePath: string): string {
-	return joinPath(getPluginCacheDirectory(app, pluginId), relativePath);
+	return joinVaultRelativePath(getPluginCacheDirectory(app, pluginId), relativePath);
 }
 
 export function getPluginLogsDirectory(app: App, pluginId: string): string {
-	return joinPath(getPluginRootPath(app, pluginId), "logs");
+	return joinVaultRelativePath(getPluginRootPath(app, pluginId), "logs");
 }
 
 export function getPluginAssetsDirectory(app: App, pluginId: string): string {
-	return joinPath(getPluginRootPath(app, pluginId), "assets");
+	return joinVaultRelativePath(getPluginRootPath(app, pluginId), "assets");
 }
