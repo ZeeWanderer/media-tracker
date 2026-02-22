@@ -1,5 +1,5 @@
 import {DEFAULT_SETTINGS, MediaTrackerSettings} from "./pluginSettingsModel";
-import {UpdateLogRun} from "../types";
+import {isValidUpdateLogRun} from "./updateLogRunValidation";
 
 export type MediaQuerySettingsSnapshot = {
 	mediaFolder: string;
@@ -8,6 +8,7 @@ export type MediaQuerySettingsSnapshot = {
 export type LoadedSettingsResult = {
 	settings: MediaTrackerSettings;
 	hadLegacyFaviconCache: boolean;
+	hadLegacyPendingUpdateRun: boolean;
 };
 
 export function normalizeMediaFolder(value: string | undefined): string {
@@ -17,16 +18,17 @@ export function normalizeMediaFolder(value: string | undefined): string {
 
 export function normalizeLoadedSettings(
 	loaded: (Partial<MediaTrackerSettings> & {faviconCache?: unknown}) | null,
-	isValidUpdateLogRun: (run: unknown) => run is UpdateLogRun,
 ): LoadedSettingsResult {
 	const loadedRecord = loaded && typeof loaded === "object" ? {...loaded} : null;
 	let hadLegacyFaviconCache = false;
+	let hadLegacyPendingUpdateRun = false;
 	if (loadedRecord && "faviconCache" in loadedRecord) {
 		delete loadedRecord.faviconCache;
 		hadLegacyFaviconCache = true;
 	}
 	if (loadedRecord && "pendingUpdateRun" in (loadedRecord as Record<string, unknown>)) {
 		delete (loadedRecord as Record<string, unknown>).pendingUpdateRun;
+		hadLegacyPendingUpdateRun = true;
 	}
 
 	const settings = Object.assign({}, DEFAULT_SETTINGS, loadedRecord ?? {});
@@ -77,6 +79,7 @@ export function normalizeLoadedSettings(
 	return {
 		settings,
 		hadLegacyFaviconCache,
+		hadLegacyPendingUpdateRun,
 	};
 }
 

@@ -14,9 +14,9 @@ import {
 	normalizeLoadedSettings,
 	normalizeMediaFolder,
 } from "./core/pluginSettings";
-import {isValidUpdateLogRun, UpdateRunState} from "./core/updateRunState";
+import {UpdateRunState} from "./core/updateRunState";
 import {StartupLibraryUpdateService} from "./core/startupLibraryUpdate";
-import {DEFAULT_SETTINGS, MediaTrackerSettings} from "./core/pluginSettingsModel";
+import {MediaTrackerSettings} from "./core/pluginSettingsModel";
 import {PendingUpdateRunCheckpointStore} from "./core/pendingUpdateRunCheckpointStore";
 import {ViewRefreshManager} from "./core/viewRefreshManager";
 import {
@@ -24,6 +24,15 @@ import {
 	MEDIA_TRACKER_UPDATE_LOG_VIEW,
 	MEDIA_TRACKER_VIEW,
 } from "./ui/viewIds";
+
+type TrackerCacheView = {
+	invalidateItemsCache?: () => void;
+};
+
+type RefreshableView = {
+	render?: () => void;
+	requestRender?: () => void;
+};
 
 export default class MediaTrackerPlugin extends Plugin {
 	settings: MediaTrackerSettings;
@@ -45,11 +54,13 @@ export default class MediaTrackerPlugin extends Plugin {
 		this.pendingRunCheckpointStore = new PendingUpdateRunCheckpointStore({
 			app: this.app,
 			pluginId: this.manifest.id,
-			isValidUpdateLogRun,
 		});
 		this.viewRefreshManager = new ViewRefreshManager({
-			app: this.app,
 			getMediaFolder: () => this.settings.mediaFolder,
+			invalidateTrackerItemCaches: () => this.invalidateTrackerItemCaches(),
+			refreshTrackerViews: () => this.refreshViewsByType(MEDIA_TRACKER_VIEW),
+			refreshUpdateLogViews: () => this.refreshViewsByType(MEDIA_TRACKER_UPDATE_LOG_VIEW),
+			refreshPluginLogViews: () => this.refreshViewsByType(MEDIA_TRACKER_PLUGIN_LOG_VIEW),
 		});
 		this.updateRunState = new UpdateRunState({
 			settings: this.settings,
@@ -98,9 +109,9 @@ export default class MediaTrackerPlugin extends Plugin {
 
 	async loadSettings() {
 		const loaded = await this.loadData() as (Partial<MediaTrackerSettings> & {faviconCache?: unknown}) | null;
-		const normalized = normalizeLoadedSettings(loaded, isValidUpdateLogRun);
+		const normalized = normalizeLoadedSettings(loaded);
 		this.settings = normalized.settings;
-		if (normalized.hadLegacyFaviconCache) {
+		if (normalized.hadLegacyFaviconCache || normalized.hadLegacyPendingUpdateRun) {
 			await this.saveData(this.settings);
 		}
 	}
@@ -140,5 +151,25 @@ export default class MediaTrackerPlugin extends Plugin {
 
 	async recordCompletedUpdateRun(run: UpdateLogRun) {
 		await this.updateRunState.recordCompletedUpdateRun(run);
+	}
+
+	private invalidateTrackerItemCaches() {
+		const leaves = this.app.workspace.getLeavesOfType(MEDIA_TRACKER_VIEW);
+		for (const leaf of leaves) {
+			const view = leaf.view as TrackerCacheView;
+			view.invalidateItemsCache?.();
+		}
+	}
+
+	private refreshViewsByType(viewType: string) {
+		const leaves = this.app.workspace.getLeavesOfType(viewType);
+		for (const leaf of leaves) {
+			const view = leaf.view as RefreshableView;
+			if (view.requestRender) {
+				view.requestRender();
+			} else {
+				view.render?.();
+			}
+		}
 	}
 }

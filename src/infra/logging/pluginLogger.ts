@@ -1,7 +1,9 @@
 import {App, DataAdapter} from "obsidian";
 import {ensureAdapterDirectory} from "../storage/adapterPath";
+import {getPluginLogsDirectory} from "../storage/pluginPaths";
+import type {PluginLogLevel} from "../../types";
 
-export type PluginLogLevel = "debug" | "info" | "warn" | "error";
+export type {PluginLogLevel};
 
 export type PluginLogEntry = {
 	timestamp: number;
@@ -32,12 +34,8 @@ const LEVEL_VALUE: Record<PluginLogLevel, number> = {
 	error: 40,
 };
 
-function getPluginRoot(app: App, pluginId: string): string {
-	return `${app.vault.configDir}/plugins/${pluginId}`;
-}
-
 export function getPluginLogDirectory(app: App, pluginId: string): string {
-	return `${getPluginRoot(app, pluginId)}/${LOG_DIR}`;
+	return getPluginLogsDirectory(app, pluginId);
 }
 
 function getLogFileName(date: Date): string {

@@ -1,18 +1,25 @@
-import {App, Notice, PluginSettingTab, Setting, TextComponent} from "obsidian";
-import type MediaTrackerPlugin from "./main";
+import {App, Notice, Plugin, PluginSettingTab, Setting, TextComponent} from "obsidian";
 import {getPluginLogDirectory} from "./infra/logging/pluginLogger";
 import {openPluginLog} from "./ui/pluginLogView";
-import {ensurePluginGitignoreEntries} from "./flows/gitFlow";
+import {ensurePluginGitignoreEntries} from "./infra/git/vaultGit";
 import {DEFAULT_SETTINGS, MediaTrackerSettings} from "./core/pluginSettingsModel";
+import type {PluginLogger} from "./infra/logging/pluginLogger";
+
+type SettingsTabPluginDeps = Plugin & {
+	settings: MediaTrackerSettings;
+	manifest: {id: string};
+	logger: PluginLogger;
+	updateSettings: (mutator: (settings: MediaTrackerSettings) => void) => Promise<void>;
+};
 
 export class MediaTrackerSettingTab extends PluginSettingTab {
-	plugin: MediaTrackerPlugin;
+	plugin: SettingsTabPluginDeps;
 	private readonly textSettingDebounceMs = 450;
 	private readonly textSettingTimers = new Map<string, number>();
 	private readonly pendingTextSettingValues = new Map<string, string>();
 	private readonly textSettingUpdaters = new Map<string, (settings: MediaTrackerSettings, value: string) => void>();
 
-	constructor(app: App, plugin: MediaTrackerPlugin) {
+	constructor(app: App, plugin: SettingsTabPluginDeps) {
 		super(app, plugin);
 		this.plugin = plugin;
 	}

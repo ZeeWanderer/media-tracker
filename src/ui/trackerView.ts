@@ -1,6 +1,5 @@
-import {ItemView, Notice, WorkspaceLeaf} from "obsidian";
-import type MediaTrackerPlugin from "../main";
-import {MediaItem} from "../types";
+import {App, ItemView, Notice, WorkspaceLeaf} from "obsidian";
+import {MediaItem, UpdateLogRun} from "../types";
 import {MEDIA_STATUS_LABELS} from "./mediaStatusLabels";
 import {MEDIA_TYPE_LABELS} from "./mediaTypeConfig";
 import {NewMediaModal} from "./newMediaModal";
@@ -28,10 +27,25 @@ import {
 	StatusFilter,
 } from "./trackerFiltering";
 import {MEDIA_TRACKER_VIEW} from "./viewIds";
+import type {MediaTrackerSettings} from "../core/pluginSettingsModel";
+import type {DesktopFaviconCache} from "../infra/cache/faviconCache";
+import type {PluginLogger} from "../infra/logging/pluginLogger";
 export {MEDIA_TRACKER_VIEW};
 
+type TrackerViewPluginDeps = {
+	app: App;
+	manifest: {id: string};
+	settings: MediaTrackerSettings;
+	logger: PluginLogger;
+	faviconCache: DesktopFaviconCache;
+	updateSettings: (mutator: (settings: MediaTrackerSettings) => void) => Promise<void>;
+	suppressNextViewRefresh: () => void;
+	setActiveUpdateRun: (run: UpdateLogRun | null) => void;
+	recordCompletedUpdateRun: (run: UpdateLogRun) => Promise<void>;
+};
+
 export class MediaTrackerView extends ItemView {
-	plugin: MediaTrackerPlugin;
+	plugin: TrackerViewPluginDeps;
 	private typeFilter: TypeFilter = "all";
 	private statusFilter: StatusFilter = "all";
 	private displayMode: DisplayMode;
@@ -48,16 +62,37 @@ export class MediaTrackerView extends ItemView {
 	private trackedItemsCacheDirty = true;
 	private visibleItems: MediaItem[] = [];
 
-	constructor(leaf: WorkspaceLeaf, plugin: MediaTrackerPlugin) {
+	constructor(leaf: WorkspaceLeaf, plugin: TrackerViewPluginDeps) {
 		super(leaf);
 		this.plugin = plugin;
 		this.displayMode = plugin.settings.displayMode ?? "cards";
-		this.gitService = new TrackerGitService(plugin, () => this.requestRender());
-		this.iconService = new TrackerIconService(plugin, () => this.requestRender());
-		this.refreshService = new TrackerRefreshService(plugin, () => this.updateRefreshButtonState());
+		this.gitService = new TrackerGitService({
+			app: this.app,
+			pluginId: this.plugin.manifest.id,
+			getMediaFolder: () => this.plugin.settings.mediaFolder,
+			logger: this.plugin.logger,
+			onStateChange: () => this.requestRender(),
+		});
+		this.iconService = new TrackerIconService({
+			app: this.app,
+			pluginId: this.plugin.manifest.id,
+			faviconCache: this.plugin.faviconCache,
+			onStateChange: () => this.requestRender(),
+		});
+		this.refreshService = new TrackerRefreshService({
+			app: this.app,
+			getSettings: () => this.plugin.settings,
+			logger: this.plugin.logger,
+			setActiveUpdateRun: (run) => this.plugin.setActiveUpdateRun(run),
+			recordCompletedUpdateRun: (run) => this.plugin.recordCompletedUpdateRun(run),
+			openUpdateLog: () => openMediaUpdateLog(this.plugin),
+			onStateChange: () => this.updateRefreshButtonState(),
+		});
 		this.interactionController = new TrackerInteractionController({
 			app: this.app,
-			plugin: this.plugin,
+			getSettings: () => this.plugin.settings,
+			suppressNextViewRefresh: () => this.plugin.suppressNextViewRefresh(),
+			logger: this.plugin.logger,
 			runTask: (task, errorMessage, logContext) => this.runTask(task, errorMessage, logContext),
 			invalidateItemsCache: () => this.invalidateItemsCache(),
 			render: () => this.requestRender(),

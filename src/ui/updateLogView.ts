@@ -1,7 +1,17 @@
-import {ItemView, WorkspaceLeaf} from "obsidian";
-import type MediaTrackerPlugin from "../main";
+import {App, ItemView, WorkspaceLeaf} from "obsidian";
 import {UpdateLogEntry, UpdateLogRun} from "../types";
 import {MEDIA_TRACKER_UPDATE_LOG_VIEW} from "./viewIds";
+import type {MediaTrackerSettings} from "../core/pluginSettingsModel";
+
+type UpdateLogViewDeps = {
+	app: App;
+	settings: MediaTrackerSettings;
+	getActiveUpdateRun: () => UpdateLogRun | null;
+};
+
+type OpenUpdateLogDeps = {
+	app: App;
+};
 
 export {MEDIA_TRACKER_UPDATE_LOG_VIEW};
 
@@ -58,9 +68,9 @@ function formatAttemptSummary(entry: UpdateLogEntry): string | null {
 }
 
 export class MediaTrackerUpdateLogView extends ItemView {
-	plugin: MediaTrackerPlugin;
+	plugin: UpdateLogViewDeps;
 
-	constructor(leaf: WorkspaceLeaf, plugin: MediaTrackerPlugin) {
+	constructor(leaf: WorkspaceLeaf, plugin: UpdateLogViewDeps) {
 		super(leaf);
 		this.plugin = plugin;
 	}
@@ -171,7 +181,7 @@ export class MediaTrackerUpdateLogView extends ItemView {
 	}
 }
 
-export async function openMediaUpdateLog(plugin: MediaTrackerPlugin) {
+export async function openMediaUpdateLog(plugin: OpenUpdateLogDeps) {
 	const leaf = plugin.app.workspace.getLeaf("tab");
 	await leaf.setViewState({type: MEDIA_TRACKER_UPDATE_LOG_VIEW, active: true});
 	await plugin.app.workspace.revealLeaf(leaf);

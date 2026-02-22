@@ -1,24 +1,12 @@
-import {App, TAbstractFile, TFile, TFolder} from "obsidian";
+import {TAbstractFile, TFile, TFolder} from "obsidian";
 import {normalizeMediaFolder} from "./pluginSettings";
-import {
-	MEDIA_TRACKER_PLUGIN_LOG_VIEW,
-	MEDIA_TRACKER_UPDATE_LOG_VIEW,
-	MEDIA_TRACKER_VIEW,
-} from "../ui/viewIds";
-
-// Minimal interfaces to avoid runtime coupling to concrete view classes.
-type TrackerCacheView = {
-	invalidateItemsCache?: () => void;
-};
-
-type RefreshableView = {
-	render?: () => void;
-	requestRender?: () => void;
-};
 
 type ViewRefreshManagerDeps = {
-	app: App;
 	getMediaFolder: () => string;
+	invalidateTrackerItemCaches: () => void;
+	refreshTrackerViews: () => void;
+	refreshUpdateLogViews: () => void;
+	refreshPluginLogViews: () => void;
 };
 
 export class ViewRefreshManager {
@@ -66,45 +54,25 @@ export class ViewRefreshManager {
 	}
 
 	refreshViews() {
-		this.refreshTrackerViews();
-		this.refreshUpdateLogViews();
-		this.refreshPluginLogViews();
+		this.deps.refreshTrackerViews();
+		this.deps.refreshUpdateLogViews();
+		this.deps.refreshPluginLogViews();
 	}
 
 	invalidateTrackerItemCaches() {
-		const leaves = this.deps.app.workspace.getLeavesOfType(MEDIA_TRACKER_VIEW);
-		for (const leaf of leaves) {
-			const view = leaf.view as TrackerCacheView;
-			view.invalidateItemsCache?.();
-		}
+		this.deps.invalidateTrackerItemCaches();
 	}
 
 	refreshTrackerViews() {
-		const leaves = this.deps.app.workspace.getLeavesOfType(MEDIA_TRACKER_VIEW);
-		for (const leaf of leaves) {
-			const view = leaf.view as RefreshableView;
-			if (view.requestRender) {
-				view.requestRender();
-			} else {
-				view.render?.();
-			}
-		}
+		this.deps.refreshTrackerViews();
 	}
 
 	refreshUpdateLogViews() {
-		const leaves = this.deps.app.workspace.getLeavesOfType(MEDIA_TRACKER_UPDATE_LOG_VIEW);
-		for (const leaf of leaves) {
-			const view = leaf.view as RefreshableView;
-			view.render?.();
-		}
+		this.deps.refreshUpdateLogViews();
 	}
 
 	refreshPluginLogViews() {
-		const leaves = this.deps.app.workspace.getLeavesOfType(MEDIA_TRACKER_PLUGIN_LOG_VIEW);
-		for (const leaf of leaves) {
-			const view = leaf.view as RefreshableView;
-			view.render?.();
-		}
+		this.deps.refreshPluginLogViews();
 	}
 
 	private shouldRefreshForMetadataFile(file: TFile): boolean {

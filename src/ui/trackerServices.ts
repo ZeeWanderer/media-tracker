@@ -1,17 +1,32 @@
+import {App} from "obsidian";
 import {MediaItem} from "../types";
-import type MediaTrackerPlugin from "../main";
-import {createVaultUpdateCommit, isVaultGitRepository, type VaultCommitResult} from "../flows/gitFlow";
+import {createVaultUpdateCommit, isVaultGitRepository, type VaultCommitResult} from "../infra/git/vaultGit";
 import {getAnilistUrl, getFaviconCacheKey, getKnownIconAsset, KNOWN_ICON_BASES} from "../domain/media/links";
+import {getPluginAssetsDirectory} from "../infra/storage/pluginPaths";
+import type {DesktopFaviconCache} from "../infra/cache/faviconCache";
+import type {PluginLogger} from "../infra/logging/pluginLogger";
+
+type TrackerGitServiceDeps = {
+	app: App;
+	pluginId: string;
+	getMediaFolder: () => string;
+	logger?: Pick<PluginLogger, "error">;
+	onStateChange: () => void;
+};
+
+type TrackerIconServiceDeps = {
+	app: App;
+	pluginId: string;
+	faviconCache: Pick<DesktopFaviconCache, "getMemoryCachedFavicon" | "ensureFavicon">;
+	onStateChange: () => void;
+};
 
 export class TrackerGitService {
 	private repository: boolean | null = null;
 	private repositoryPromise: Promise<void> | null = null;
 	private creatingCommit = false;
 
-	constructor(
-		private readonly plugin: MediaTrackerPlugin,
-		private readonly onStateChange: () => void,
-	) {}
+	constructor(private readonly deps: TrackerGitServiceDeps) {}
 
 	get hasRepository(): boolean {
 		return this.repository === true;
@@ -23,25 +38,25 @@ export class TrackerGitService {
 
 	markNotRepository() {
 		this.repository = false;
-		this.onStateChange();
+		this.deps.onStateChange();
 	}
 
 	ensureRepositoryState() {
 		if (this.repository !== null || this.repositoryPromise) {
 			return;
 		}
-			this.repositoryPromise = (async () => {
-				this.repository = await isVaultGitRepository(this.plugin.app);
-			})()
-				.catch((error: unknown) => {
-					this.plugin.logger.error("git", "repo_check_failed", "Failed to check git repository state.", {
-						error: error instanceof Error ? error.message : String(error),
-					});
+		this.repositoryPromise = (async () => {
+			this.repository = await isVaultGitRepository(this.deps.app);
+		})()
+			.catch((error: unknown) => {
+				this.deps.logger?.error("git", "repo_check_failed", "Failed to check git repository state.", {
+					error: error instanceof Error ? error.message : String(error),
+				});
 				this.repository = false;
 			})
 			.finally(() => {
 				this.repositoryPromise = null;
-				this.onStateChange();
+				this.deps.onStateChange();
 			});
 	}
 
@@ -50,15 +65,15 @@ export class TrackerGitService {
 			return null;
 		}
 		this.creatingCommit = true;
-		this.onStateChange();
+		this.deps.onStateChange();
 		try {
-			return await createVaultUpdateCommit(this.plugin.app, {
-				mediaFolder: this.plugin.settings.mediaFolder,
-				pluginId: this.plugin.manifest.id,
+			return await createVaultUpdateCommit(this.deps.app, {
+				mediaFolder: this.deps.getMediaFolder(),
+				pluginId: this.deps.pluginId,
 			});
 		} finally {
 			this.creatingCommit = false;
-			this.onStateChange();
+			this.deps.onStateChange();
 		}
 	}
 }
@@ -67,10 +82,7 @@ export class TrackerIconService {
 	private knownIconAssets = new Map<string, string>();
 	private knownIconAssetsPromise: Promise<void> | null = null;
 
-	constructor(
-		private readonly plugin: MediaTrackerPlugin,
-		private readonly onStateChange: () => void,
-	) {}
+	constructor(private readonly deps: TrackerIconServiceDeps) {}
 
 	getLinkIconUrl(value: string): string | null {
 		const base = getKnownIconAsset(value);
@@ -78,7 +90,7 @@ export class TrackerIconService {
 		if (asset) {
 			return this.getAssetUrl(asset);
 		}
-		const cached = this.plugin.faviconCache.getMemoryCachedFavicon(value);
+		const cached = this.deps.faviconCache.getMemoryCachedFavicon(value);
 		return cached ?? null;
 	}
 
@@ -86,14 +98,14 @@ export class TrackerIconService {
 		if (this.knownIconAssetsPromise) {
 			return this.knownIconAssetsPromise;
 		}
-		const pluginDir = `${this.plugin.app.vault.configDir}/plugins/${this.plugin.manifest.id}`;
+		const assetsDir = getPluginAssetsDirectory(this.deps.app, this.deps.pluginId);
 		this.knownIconAssetsPromise = (async () => {
 			for (const base of KNOWN_ICON_BASES) {
 				const extensions = ["svg", "png", "ico"];
 				for (const ext of extensions) {
 					try {
 						const name = `${base}.${ext}`;
-						const exists = await this.plugin.app.vault.adapter.exists(`${pluginDir}/assets/${name}`);
+						const exists = await this.deps.app.vault.adapter.exists(`${assetsDir}/${name}`);
 						if (exists) {
 							this.knownIconAssets.set(base, name);
 							break;
@@ -126,10 +138,10 @@ export class TrackerIconService {
 				if (!key) {
 					continue;
 				}
-				if (this.plugin.faviconCache.getMemoryCachedFavicon(link)) {
+				if (this.deps.faviconCache.getMemoryCachedFavicon(link)) {
 					continue;
 				}
-				pending.push(this.plugin.faviconCache.ensureFavicon(link));
+				pending.push(this.deps.faviconCache.ensureFavicon(link));
 			}
 		}
 
@@ -139,12 +151,12 @@ export class TrackerIconService {
 
 		const results = await Promise.all(pending);
 		if (results.some((value) => value !== null)) {
-			this.onStateChange();
+			this.deps.onStateChange();
 		}
 	}
 
 	private getAssetUrl(fileName: string): string {
-		const pluginDir = `${this.plugin.app.vault.configDir}/plugins/${this.plugin.manifest.id}`;
-		return this.plugin.app.vault.adapter.getResourcePath(`${pluginDir}/assets/${fileName}`);
+		const assetsDir = getPluginAssetsDirectory(this.deps.app, this.deps.pluginId);
+		return this.deps.app.vault.adapter.getResourcePath(`${assetsDir}/${fileName}`);
 	}
 }

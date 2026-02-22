@@ -3,6 +3,7 @@ import type {MediaItem, NewMediaDraft} from "./domain/media/models";
 
 export type {MediaType, MediaStatus};
 export type {MediaItem, NewMediaDraft};
+export type PluginLogLevel = "debug" | "info" | "warn" | "error";
 export type UpdateNotificationMode = "quiet" | "summary" | "verbose";
 export type UpdateProvider = "anilist" | "tmdb" | "none";
 export type UpdateEntryStatus = "updated" | "unchanged" | "failed" | "skipped";

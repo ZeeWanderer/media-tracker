@@ -1,5 +1,4 @@
-import {Modal, Notice, Setting} from "obsidian";
-import type MediaTrackerPlugin from "../main";
+import {App, Modal, Notice, Setting} from "obsidian";
 import {MediaStatus, MediaType, NewMediaDraft, NewMediaFieldConfig} from "../types";
 import {MEDIA_STATUS_LABELS} from "./mediaStatusLabels";
 import {MEDIA_TYPE_LABELS} from "./mediaTypeConfig";
@@ -8,9 +7,17 @@ import {createMediaNoteFromDraft, updateMediaDraftType} from "../flows/media";
 import {NEW_MEDIA_BASE_FIELDS, NEW_MEDIA_TYPE_FIELDS} from "./newMediaForm";
 import {extractImdbId} from "../domain/media/links";
 import {runLoggedTask, type TaskLogContext} from "./taskRunner";
+import type {MediaTrackerSettings} from "../core/pluginSettingsModel";
+import type {PluginLogger} from "../infra/logging/pluginLogger";
+
+type NewMediaModalPluginDeps = {
+	app: App;
+	settings: MediaTrackerSettings;
+	logger: PluginLogger;
+};
 
 export class NewMediaModal extends Modal {
-	plugin: MediaTrackerPlugin;
+	plugin: NewMediaModalPluginDeps;
 	private createInProgress = false;
 	private draft: NewMediaDraft = {
 		title: "",
@@ -19,7 +26,7 @@ export class NewMediaModal extends Modal {
 		links: [],
 	};
 
-	constructor(plugin: MediaTrackerPlugin) {
+	constructor(plugin: NewMediaModalPluginDeps) {
 		super(plugin.app);
 		this.plugin = plugin;
 	}

@@ -1,18 +1,26 @@
-import {Notice} from "obsidian";
-import type MediaTrackerPlugin from "../main";
+import {App, Notice} from "obsidian";
 import {MediaItem, UpdateLogRun} from "../types";
 import {formatRefreshRunSummary, refreshTrackedMedia} from "../flows/media";
-import {openMediaUpdateLog} from "./updateLogView";
+import {executeLibraryRefresh} from "../core/libraryRefreshOrchestrator";
+import type {MediaTrackerSettings} from "../core/pluginSettingsModel";
+import type {PluginLogger} from "../infra/logging/pluginLogger";
+
+type TrackerRefreshServiceDeps = {
+	app: App;
+	getSettings: () => MediaTrackerSettings;
+	logger: PluginLogger;
+	setActiveUpdateRun: (run: UpdateLogRun | null) => void;
+	recordCompletedUpdateRun: (run: UpdateLogRun) => Promise<void>;
+	openUpdateLog: () => Promise<void>;
+	onStateChange: () => void;
+};
 
 export class TrackerRefreshService {
 	private refreshing = false;
 	private progressCurrent = 0;
 	private progressTotal = 0;
 
-	constructor(
-		private readonly plugin: MediaTrackerPlugin,
-		private readonly onStateChange: () => void,
-	) {}
+	constructor(private readonly deps: TrackerRefreshServiceDeps) {}
 
 	get isRefreshing(): boolean {
 		return this.refreshing;
@@ -29,7 +37,7 @@ export class TrackerRefreshService {
 	private setProgress(current: number, total: number) {
 		this.progressCurrent = Math.max(0, Math.floor(current));
 		this.progressTotal = Math.max(0, Math.floor(total));
-		this.onStateChange();
+		this.deps.onStateChange();
 	}
 
 	private clearProgress() {
@@ -43,44 +51,53 @@ export class TrackerRefreshService {
 		}
 		this.refreshing = true;
 		this.clearProgress();
-		this.onStateChange();
-		try {
-			this.plugin.logger.info("refresh", "bulk_start", "Starting bulk media refresh.", {count: items.length});
-			const run = await refreshTrackedMedia(
-				this.plugin.app,
-				this.plugin.settings,
+		this.deps.onStateChange();
+		this.deps.logger.info("refresh", "bulk_start", "Starting bulk media refresh.", {count: items.length});
+		await executeLibraryRefresh(
+			{
+				getSettings: () => this.deps.getSettings(),
+				runRefresh: (settings, targets, onProgress, onRunUpdate) => refreshTrackedMedia(
+					this.deps.app,
+					settings,
+					targets,
+					onProgress,
+					onRunUpdate,
+				),
+				setActiveUpdateRun: (run) => this.deps.setActiveUpdateRun(run),
+				recordCompletedUpdateRun: (run) => this.deps.recordCompletedUpdateRun(run),
+				openUpdateLog: () => this.deps.openUpdateLog(),
+			},
+			{
 				items,
-				(current, total) => this.setProgress(current, total),
-				(activeRun) => this.plugin.setActiveUpdateRun(activeRun),
-			);
-			await this.plugin.recordCompletedUpdateRun(run);
-			this.notifyRefreshResult(run);
-			this.plugin.logger.info("refresh", "bulk_complete", "Bulk media refresh completed.", {
-				total: run.total,
-				updated: run.updated,
-				unchanged: run.unchanged,
-				failed: run.failed,
-				skipped: run.skipped,
-				durationMs: run.durationMs,
-			});
-				if (run.failed > 0 && this.plugin.settings.autoOpenUpdateLogOnFailure) {
-					await openMediaUpdateLog(this.plugin);
-				}
-			} catch (error) {
-				this.plugin.logger.error("refresh", "bulk_failed", "Bulk media refresh failed.", {
-					error: error instanceof Error ? error.message : String(error),
-				});
-			new Notice("Failed to refresh media updates.");
-		} finally {
-			this.refreshing = false;
-			this.clearProgress();
-			this.plugin.setActiveUpdateRun(null);
-			this.onStateChange();
-		}
+				onProgress: (current, total) => this.setProgress(current, total),
+				onCompleted: (run) => {
+					this.notifyRefreshResult(run);
+					this.deps.logger.info("refresh", "bulk_complete", "Bulk media refresh completed.", {
+						total: run.total,
+						updated: run.updated,
+						unchanged: run.unchanged,
+						failed: run.failed,
+						skipped: run.skipped,
+						durationMs: run.durationMs,
+					});
+				},
+				onFailed: (error) => {
+					this.deps.logger.error("refresh", "bulk_failed", "Bulk media refresh failed.", {
+						error: error instanceof Error ? error.message : String(error),
+					});
+					new Notice("Failed to refresh media updates.");
+				},
+				onFinally: () => {
+					this.refreshing = false;
+					this.clearProgress();
+					this.deps.onStateChange();
+				},
+			},
+		);
 	}
 
 	private notifyRefreshResult(run: UpdateLogRun) {
-		const mode = this.plugin.settings.updateNotificationMode;
+		const mode = this.deps.getSettings().updateNotificationMode;
 		if (mode === "quiet") {
 			if (run.failed > 0) {
 				new Notice(`Update complete with ${run.failed} failure${run.failed === 1 ? "" : "s"}. Open update log for details.`);

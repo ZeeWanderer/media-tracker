@@ -1,9 +1,18 @@
-import {ItemView, Notice, WorkspaceLeaf} from "obsidian";
-import type MediaTrackerPlugin from "../main";
+import {App, ItemView, Notice, WorkspaceLeaf} from "obsidian";
 import type {PluginLogEntry} from "../infra/logging/pluginLogger";
+import type {PluginLogger} from "../infra/logging/pluginLogger";
 import {MEDIA_TRACKER_PLUGIN_LOG_VIEW} from "./viewIds";
 
 export {MEDIA_TRACKER_PLUGIN_LOG_VIEW};
+
+type PluginLogViewPluginDeps = {
+	app: App;
+	logger: PluginLogger;
+};
+
+type OpenPluginLogDeps = {
+	app: App;
+};
 
 function formatTimestamp(value: number): string {
 	return new Date(value).toLocaleString();
@@ -45,10 +54,10 @@ function sortEntries(entries: PluginLogEntry[]): PluginLogEntry[] {
 }
 
 export class MediaTrackerPluginLogView extends ItemView {
-	plugin: MediaTrackerPlugin;
+	plugin: PluginLogViewPluginDeps;
 	private loadCounter = 0;
 
-	constructor(leaf: WorkspaceLeaf, plugin: MediaTrackerPlugin) {
+	constructor(leaf: WorkspaceLeaf, plugin: PluginLogViewPluginDeps) {
 		super(leaf);
 		this.plugin = plugin;
 	}
@@ -131,7 +140,7 @@ export class MediaTrackerPluginLogView extends ItemView {
 	}
 }
 
-export async function openPluginLog(plugin: MediaTrackerPlugin) {
+export async function openPluginLog(plugin: OpenPluginLogDeps) {
 	const leaf = plugin.app.workspace.getLeaf("tab");
 	await leaf.setViewState({type: MEDIA_TRACKER_PLUGIN_LOG_VIEW, active: true});
 	await plugin.app.workspace.revealLeaf(leaf);

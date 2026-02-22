@@ -1,10 +1,18 @@
-import type MediaTrackerPlugin from "../main";
+import type {App, Plugin} from "obsidian";
+import type {MediaTrackerSettings} from "../core/pluginSettingsModel";
+import type {PluginLogger} from "../infra/logging/pluginLogger";
 import {MEDIA_TRACKER_VIEW} from "../ui/viewIds";
 import {NewMediaModal} from "../ui/newMediaModal";
 import {openMediaUpdateLog} from "../ui/updateLogView";
 import {openPluginLog} from "../ui/pluginLogView";
 
-export function registerCommands(plugin: MediaTrackerPlugin) {
+type CommandsPluginDeps = Pick<Plugin, "addCommand"> & {
+	app: App;
+	settings: MediaTrackerSettings;
+	logger: PluginLogger;
+};
+
+export function registerCommands(plugin: CommandsPluginDeps) {
 	plugin.addCommand({
 		id: "open-media-tracker",
 		name: "Open media tracker",
@@ -17,7 +25,11 @@ export function registerCommands(plugin: MediaTrackerPlugin) {
 		id: "create-media-note",
 		name: "Create media note",
 		callback: () => {
-			new NewMediaModal(plugin).open();
+			new NewMediaModal({
+				app: plugin.app,
+				settings: plugin.settings,
+				logger: plugin.logger,
+			}).open();
 		},
 	});
 
@@ -38,7 +50,7 @@ export function registerCommands(plugin: MediaTrackerPlugin) {
 	});
 }
 
-export async function openMediaTracker(plugin: MediaTrackerPlugin) {
+export async function openMediaTracker(plugin: {app: App}) {
 	const leaf = plugin.app.workspace.getLeaf("tab");
 	await leaf.setViewState({type: MEDIA_TRACKER_VIEW, active: true});
 	await plugin.app.workspace.revealLeaf(leaf);

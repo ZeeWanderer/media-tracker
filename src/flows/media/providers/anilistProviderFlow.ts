@@ -1,6 +1,6 @@
 import {App} from "obsidian";
 import {MediaItem} from "../../../types";
-import {lookupAniListLatest} from "../../../infra/api/anilistApi";
+import {lookupAniListLatest} from "../../../infra/api/anilist/lookup";
 import {updateMediaSnapshot} from "../../../domain/media";
 import {extractAnilistId} from "../../../domain/media/links";
 

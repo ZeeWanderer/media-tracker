@@ -1,12 +1,13 @@
 import {PluginLogger} from "../infra/logging/pluginLogger";
 import {MediaTrackerSettings} from "./pluginSettingsModel";
 import {MediaItem, UpdateLogRun} from "../types";
+import {executeLibraryRefresh} from "./libraryRefreshOrchestrator";
 
 type StartupLibraryUpdateDeps = {
 	getSettings: () => MediaTrackerSettings;
 	saveSettingsData: () => Promise<void>;
 	listTrackedItems: () => MediaItem[];
-	refreshTrackedItems: (items: MediaItem[], onRunUpdate: (run: UpdateLogRun) => void) => Promise<UpdateLogRun>;
+	refreshTrackedItems: (items: MediaItem[], onRunUpdate?: (run: UpdateLogRun) => void) => Promise<UpdateLogRun>;
 	setActiveUpdateRun: (run: UpdateLogRun | null) => void;
 	recordCompletedUpdateRun: (run: UpdateLogRun) => Promise<void>;
 	invalidateTrackerItemCaches: () => void;
@@ -52,31 +53,39 @@ export class StartupLibraryUpdateService {
 				return;
 			}
 
-			const run = await this.deps.refreshTrackedItems(items, (activeRun) => {
-				this.deps.setActiveUpdateRun(activeRun);
-			});
-			settings.startupLibraryUpdateLastRun = Number.isFinite(run.finishedAt) && run.finishedAt > 0
-				? run.finishedAt
-				: Date.now();
-			await this.deps.recordCompletedUpdateRun(run);
-			this.deps.logger.info("refresh", "startup_completed", "Startup library update completed.", {
-				total: run.total,
-				updated: run.updated,
-				unchanged: run.unchanged,
-				failed: run.failed,
-				skipped: run.skipped,
-				durationMs: run.durationMs,
-			});
-			if (run.failed > 0 && settings.autoOpenUpdateLogOnFailure) {
-				await this.deps.openUpdateLog();
-			}
-		} catch (error) {
-			this.deps.logger.error("refresh", "startup_failed", "Startup library update failed.", {
-				error: error instanceof Error ? error.message : String(error),
-			});
+			await executeLibraryRefresh(
+				{
+					getSettings: () => this.deps.getSettings(),
+					runRefresh: (_settings, targets, _onProgress, onRunUpdate) => this.deps.refreshTrackedItems(targets, onRunUpdate),
+					setActiveUpdateRun: (run) => this.deps.setActiveUpdateRun(run),
+					recordCompletedUpdateRun: (run) => this.deps.recordCompletedUpdateRun(run),
+					openUpdateLog: () => this.deps.openUpdateLog(),
+				},
+				{
+					items,
+					onCompleted: async (run, currentSettings) => {
+						currentSettings.startupLibraryUpdateLastRun = Number.isFinite(run.finishedAt) && run.finishedAt > 0
+							? run.finishedAt
+							: Date.now();
+						await this.deps.saveSettingsData();
+						this.deps.logger.info("refresh", "startup_completed", "Startup library update completed.", {
+							total: run.total,
+							updated: run.updated,
+							unchanged: run.unchanged,
+							failed: run.failed,
+							skipped: run.skipped,
+							durationMs: run.durationMs,
+						});
+					},
+					onFailed: (error) => {
+						this.deps.logger.error("refresh", "startup_failed", "Startup library update failed.", {
+							error: error instanceof Error ? error.message : String(error),
+						});
+					},
+				},
+			);
 		} finally {
 			this.updateInProgress = false;
-			this.deps.setActiveUpdateRun(null);
 			this.deps.invalidateTrackerItemCaches();
 			this.deps.scheduleRefresh();
 		}

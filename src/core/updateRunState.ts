@@ -1,6 +1,7 @@
 import {MediaTrackerSettings} from "./pluginSettingsModel";
 import {UpdateLogRun} from "../types";
 import {PluginLogger} from "../infra/logging/pluginLogger";
+import {isValidUpdateLogRun} from "./updateLogRunValidation";
 
 type UpdateRunStateDeps = {
 	settings: MediaTrackerSettings;
@@ -13,22 +14,6 @@ type UpdateRunStateDeps = {
 
 const MAX_RUNS = 25;
 const MAX_ENTRIES_PER_RUN = 1500;
-
-export function isValidUpdateLogRun(run: unknown): run is UpdateLogRun {
-	if (!run || typeof run !== "object") {
-		return false;
-	}
-	const value = run as Partial<UpdateLogRun>;
-	return Number.isFinite(value.startedAt)
-		&& Number.isFinite(value.finishedAt)
-		&& Number.isFinite(value.durationMs)
-		&& Number.isFinite(value.total)
-		&& Number.isFinite(value.updated)
-		&& Number.isFinite(value.unchanged)
-		&& Number.isFinite(value.failed)
-		&& Number.isFinite(value.skipped)
-		&& Array.isArray(value.entries);
-}
 
 export class UpdateRunState {
 	private activeRun: UpdateLogRun | null = null;

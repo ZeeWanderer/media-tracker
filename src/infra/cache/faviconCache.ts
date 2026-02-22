@@ -2,9 +2,9 @@ import {App, DataAdapter} from "obsidian";
 import {httpRequest} from "../network/httpClient";
 import {getFaviconCacheKey as getDomainFaviconCacheKey} from "../../domain/media/links";
 import {ensureAdapterDirectory} from "../storage/adapterPath";
+import {getPluginCacheDirectory} from "../storage/pluginPaths";
 
 const FAVICON_CACHE_VERSION = 1;
-const FAVICON_CACHE_DIR = "cache/favicons";
 const FAVICON_INDEX_FILE = "index.json";
 const DEFAULT_MAX_MEMORY_ENTRIES = 128;
 const DEFAULT_MAX_MEMORY_BYTES = 4 * 1024 * 1024;
@@ -111,12 +111,8 @@ function getDiskFileName(origin: string, contentType: string): string {
 	return `${safeHostFromOrigin(origin)}-${hashKey(origin)}.${extension}`;
 }
 
-function getPluginRoot(app: App, pluginId: string): string {
-	return `${app.vault.configDir}/plugins/${pluginId}`;
-}
-
 function getCacheDirectory(app: App, pluginId: string): string {
-	return `${getPluginRoot(app, pluginId)}/${FAVICON_CACHE_DIR}`;
+	return `${getPluginCacheDirectory(app, pluginId)}/favicons`;
 }
 
 function getIndexPath(app: App, pluginId: string): string {

@@ -1,11 +1,12 @@
 import {App} from "obsidian";
 import {UpdateLogRun} from "../types";
 import {ensureAdapterDirectory} from "../infra/storage/adapterPath";
+import {getPluginCachePath} from "../infra/storage/pluginPaths";
+import {isValidUpdateLogRun} from "./updateLogRunValidation";
 
 type PendingUpdateRunCheckpointStoreDeps = {
 	app: App;
 	pluginId: string;
-	isValidUpdateLogRun: (run: unknown) => run is UpdateLogRun;
 };
 
 export class PendingUpdateRunCheckpointStore {
@@ -21,7 +22,7 @@ export class PendingUpdateRunCheckpointStore {
 			}
 			const raw = await adapter.read(checkpointPath);
 			const parsed = JSON.parse(raw) as unknown;
-			return this.deps.isValidUpdateLogRun(parsed) ? parsed : null;
+			return isValidUpdateLogRun(parsed) ? parsed : null;
 		} catch {
 			return null;
 		}
@@ -48,6 +49,6 @@ export class PendingUpdateRunCheckpointStore {
 	}
 
 	private getCheckpointPath(): string {
-		return `${this.deps.app.vault.configDir}/plugins/${this.deps.pluginId}/cache/pending-update-run.json`;
+		return getPluginCachePath(this.deps.app, this.deps.pluginId, "pending-update-run.json");
 	}
 }

@@ -1,5 +1,4 @@
 import {App, Notice} from "obsidian";
-import type MediaTrackerPlugin from "../main";
 import type {MediaItem} from "../types";
 import {
 	addLinkToMediaNote,
@@ -16,10 +15,14 @@ import {openInlineProgressEditor} from "./inlineProgressEditor";
 import {renderProgressMeta, type RenderHandlers, type SortKey} from "./trackerRenderer";
 import type {DisplayMode} from "./trackerFiltering";
 import type {TaskLogContext} from "./taskRunner";
+import type {MediaTrackerSettings} from "../core/pluginSettingsModel";
+import type {PluginLogger} from "../infra/logging/pluginLogger";
 
 type TrackerInteractionDeps = {
 	app: App;
-	plugin: MediaTrackerPlugin;
+	getSettings: () => MediaTrackerSettings;
+	suppressNextViewRefresh: () => void;
+	logger: PluginLogger;
 	runTask: (task: () => Promise<void>, errorMessage: string, logContext?: TaskLogContext) => Promise<boolean>;
 	invalidateItemsCache: () => void;
 	render: () => void;
@@ -66,7 +69,7 @@ export class TrackerInteractionController {
 			onProgressAdvance: (target, item, nextValue) => {
 				const fullItem = item as MediaItem;
 				this.deps.runTask(async () => {
-					this.deps.plugin.suppressNextViewRefresh();
+					this.deps.suppressNextViewRefresh();
 					await updateMediaNoteProgress(this.deps.app, fullItem.file, fullItem.type, nextValue);
 					const optimistic = this.applyProgressValueToItem(fullItem, nextValue);
 					this.refreshProgressControl(target, fullItem.file.path, optimistic);
@@ -105,7 +108,7 @@ export class TrackerInteractionController {
 			value: item.progress ?? "",
 			onCommit: (nextProgress, input) => {
 				this.deps.runTask(async () => {
-					this.deps.plugin.suppressNextViewRefresh();
+					this.deps.suppressNextViewRefresh();
 					await updateMediaNoteProgress(this.deps.app, item.file, item.type, nextProgress);
 					const optimistic = this.applyProgressValueToItem(item, nextProgress);
 					this.refreshProgressControl(input, item.file.path, optimistic);
@@ -181,16 +184,16 @@ export class TrackerInteractionController {
 			},
 			onRefreshLatest: () => {
 				this.deps.runTask(async () => {
-					const result = await refreshTrackedMediaLatest(this.deps.app, this.deps.plugin.settings, item);
+					const result = await refreshTrackedMediaLatest(this.deps.app, this.deps.getSettings(), item);
 					const meta = {
 						...this.getItemLogMeta(item),
 						provider: result.provider,
 						status: result.status,
 					};
 					if (result.status === "failed") {
-						this.deps.plugin.logger.warn("refresh", "single_result", `${item.title}: ${result.message}`, meta);
+						this.deps.logger.warn("refresh", "single_result", `${item.title}: ${result.message}`, meta);
 					} else {
-						this.deps.plugin.logger.info("refresh", "single_result", `${item.title}: ${result.message}`, meta);
+						this.deps.logger.info("refresh", "single_result", `${item.title}: ${result.message}`, meta);
 					}
 					new Notice(`${item.title}: ${result.message}`, result.status === "failed" ? 10000 : 4000);
 					this.deps.invalidateItemsCache();
