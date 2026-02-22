@@ -1,15 +1,9 @@
 import {App} from "obsidian";
 import {
-	GIT_FAST_TIMEOUT_MS,
-	isGitMissing,
-	runGit,
-	summarizeGitError,
-} from "./gitProcess";
-import {
 	getPluginGitignoreEntries as getPluginGitignoreEntriesForPlugin,
 	getRepoPathWithinVault,
-	getVaultBasePath,
 } from "./vaultGitPaths";
+import {resolveVaultGitRepoContext} from "./repoContext";
 
 type VaultGitignoreStatus =
 	| "updated"
@@ -52,43 +46,14 @@ export async function ensurePluginGitignoreEntries(
 	app: App,
 	pluginId: string,
 ): Promise<VaultGitignoreUpdateResult> {
-	const vaultPath = getVaultBasePath(app);
-	if (!vaultPath) {
+	const contextResult = await resolveVaultGitRepoContext(app);
+	if (!contextResult.ok) {
 		return {
-			status: "not_repo",
-			message: "Vault adapter is not filesystem-based.",
+			status: contextResult.failure.status,
+			message: contextResult.failure.message,
 		};
 	}
-
-	const repoCheck = await runGit(["rev-parse", "--is-inside-work-tree"], vaultPath, {timeoutMs: GIT_FAST_TIMEOUT_MS});
-	if (isGitMissing(repoCheck)) {
-		return {
-			status: "git_missing",
-			message: "Git is not available in this environment.",
-		};
-	}
-	if (repoCheck.exitCode !== 0 || repoCheck.stdout.trim() !== "true") {
-		return {
-			status: "not_repo",
-			message: "Vault is not a Git repository.",
-		};
-	}
-
-	const rootResult = await runGit(["rev-parse", "--show-toplevel"], vaultPath, {timeoutMs: GIT_FAST_TIMEOUT_MS});
-	if (rootResult.exitCode !== 0) {
-		return {
-			status: "failed",
-			message: summarizeGitError(rootResult),
-		};
-	}
-
-	const repoRoot = rootResult.stdout.trim();
-	if (!repoRoot.length) {
-		return {
-			status: "failed",
-			message: "Failed to determine repository root.",
-		};
-	}
+	const {vaultPath, repoRoot} = contextResult.context;
 
 	const repoPath = getRepoPathWithinVault(vaultPath, repoRoot);
 	if (repoPath === null) {

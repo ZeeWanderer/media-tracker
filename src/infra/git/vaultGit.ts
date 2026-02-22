@@ -5,15 +5,14 @@ import {
 	GIT_NETWORK_TIMEOUT_MS,
 	GIT_WRITE_TIMEOUT_MS,
 	hasNoUpstream,
-	isGitMissing,
 	parseAheadBehind,
 	runGit,
 	summarizeGitError,
 } from "./gitProcess";
 import {
-	getVaultBasePath,
 	resolveCommitScopePaths,
 } from "./vaultGitPaths";
+import {resolveVaultGitRepoContext} from "./repoContext";
 
 type VaultCommitStatus =
 	| "created_and_pushed"
@@ -54,54 +53,22 @@ export function getUpdateCommitMessage(value: Date = new Date()): string {
 }
 
 export async function isVaultGitRepository(app: App): Promise<boolean> {
-	const vaultPath = getVaultBasePath(app);
-	if (!vaultPath) {
-		return false;
-	}
-	const result = await runGit(["rev-parse", "--is-inside-work-tree"], vaultPath, {timeoutMs: GIT_FAST_TIMEOUT_MS});
-	return result.exitCode === 0 && result.stdout.trim() === "true";
+	const contextResult = await resolveVaultGitRepoContext(app);
+	return contextResult.ok;
 }
 
 export async function createVaultUpdateCommit(
 	app: App,
 	scope: VaultCommitScope,
 ): Promise<VaultCommitResult> {
-	const vaultPath = getVaultBasePath(app);
-	if (!vaultPath) {
+	const contextResult = await resolveVaultGitRepoContext(app);
+	if (!contextResult.ok) {
 		return {
-			status: "not_repo",
-			message: "Vault adapter is not filesystem-based.",
+			status: contextResult.failure.status,
+			message: contextResult.failure.message,
 		};
 	}
-
-	const repoCheck = await runGit(["rev-parse", "--is-inside-work-tree"], vaultPath, {timeoutMs: GIT_FAST_TIMEOUT_MS});
-	if (isGitMissing(repoCheck)) {
-		return {
-			status: "git_missing",
-			message: "Git is not available in this environment.",
-		};
-	}
-	if (repoCheck.exitCode !== 0 || repoCheck.stdout.trim() !== "true") {
-		return {
-			status: "not_repo",
-			message: "Vault is not a Git repository.",
-		};
-	}
-
-	const rootResult = await runGit(["rev-parse", "--show-toplevel"], vaultPath, {timeoutMs: GIT_FAST_TIMEOUT_MS});
-	if (rootResult.exitCode !== 0) {
-		return {
-			status: "failed",
-			message: `Failed to determine repository root: ${summarizeGitError(rootResult)}`,
-		};
-	}
-	const repoRoot = rootResult.stdout.trim();
-	if (!repoRoot.length) {
-		return {
-			status: "failed",
-			message: "Failed to determine repository root.",
-		};
-	}
+	const {vaultPath, repoRoot} = contextResult.context;
 
 	const scopeCandidates = resolveCommitScopePaths(
 		app,
