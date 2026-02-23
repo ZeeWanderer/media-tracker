@@ -4,6 +4,7 @@ import {fetchTmdbLatestEpisode, findTmdbTvIdByImdb} from "../../../infra/api/tmd
 import {updateMediaSnapshot} from "../../../domain/media";
 import {extractImdbId, getImdbIdFromLinks} from "../../../domain/media/links";
 import type {MediaItem} from "../../../domain/media/models";
+import type {PluginLogger} from "../../../infra/logging/pluginLogger";
 import {providerDelay, sameNumberRecord} from "./providerFlowUtils";
 
 export type TmdbRefreshResult = {
@@ -11,6 +12,8 @@ export type TmdbRefreshResult = {
 	status: "updated" | "unchanged" | "failed";
 	message: string;
 };
+
+type RefreshLogger = Pick<PluginLogger, "debug" | "warn">;
 
 function sanitizeSeasonEpisodes(map: Record<string, number>): Record<string, number> | undefined {
 	const entries = Object.entries(map)
@@ -86,8 +89,13 @@ export async function refreshTmdbSeriesLatest(
 	settings: MediaTrackerSettings,
 	item: MediaItem,
 	minDelayMs: number,
+	logger?: RefreshLogger,
 ): Promise<TmdbRefreshResult> {
 	if (!settings.tmdbApiKey) {
+		logger?.debug("refresh", "tmdb_missing_api_key", "Skipping TMDB refresh because API key is not configured.", {
+			title: item.title,
+			filePath: item.file.path,
+		});
 		return {
 			provider: "tmdb",
 			status: "failed",
@@ -98,6 +106,10 @@ export async function refreshTmdbSeriesLatest(
 	const linkImdbId = getImdbIdFromLinks(item.links ?? []);
 	const imdbId = item.imdbId ?? linkImdbId;
 	if (!imdbId && !item.tmdbId) {
+		logger?.debug("refresh", "tmdb_missing_identity", "Skipping TMDB refresh because both TMDB and IMDB identifiers are missing.", {
+			title: item.title,
+			filePath: item.file.path,
+		});
 		return {
 			provider: "tmdb",
 			status: "failed",
@@ -119,6 +131,12 @@ export async function refreshTmdbSeriesLatest(
 			}
 			const found = await findTmdbTvIdByImdb(normalized, apiKey);
 			tmdbId = found ?? undefined;
+			logger?.debug("refresh", "tmdb_lookup_by_imdb", "Resolved TMDB ID from IMDB ID lookup.", {
+				title: item.title,
+				filePath: item.file.path,
+				imdbId: normalized,
+				tmdbId: tmdbId ?? null,
+			});
 			if (tmdbId) {
 				await storeSeriesTmdbId(app, item.file, tmdbId);
 			}
@@ -146,6 +164,17 @@ export async function refreshTmdbSeriesLatest(
 			|| !sameNumberRecord(nextSeasonEpisodes, item.tmdbSeasonEpisodes)
 			|| nextAirDate !== item.tmdbLatestAirDate
 			|| nextName !== item.tmdbLatestName;
+		logger?.debug("refresh", "tmdb_lookup_payload", "Received TMDB payload.", {
+			title: item.title,
+			filePath: item.file.path,
+			tmdbId,
+			latestSeason: nextSeason ?? null,
+			latestEpisode: nextEpisode ?? null,
+			seasonEpisodes: nextSeasonEpisodes ?? null,
+			latestAirDate: nextAirDate ?? null,
+			latestName: nextName ?? null,
+			changed,
+		});
 
 		await updateSeriesFrontmatter(app, item.file, {
 			tmdbId,
@@ -156,6 +185,12 @@ export async function refreshTmdbSeriesLatest(
 			seasonEpisodes: nextSeasonEpisodes,
 			airDate: nextAirDate,
 			name: nextName,
+		});
+		logger?.debug("refresh", "tmdb_snapshot_written", "Persisted TMDB fields to note frontmatter.", {
+			title: item.title,
+			filePath: item.file.path,
+			tmdbId,
+			changed,
 		});
 
 			await providerDelay(minDelayMs);

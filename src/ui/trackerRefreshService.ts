@@ -63,6 +63,7 @@ export class TrackerRefreshService {
 					targets,
 					onProgress,
 					onRunUpdate,
+					this.deps.logger,
 				),
 				setActiveUpdateRun: (run) => this.deps.setActiveUpdateRun(run),
 				recordCompletedUpdateRun: (run) => this.deps.recordCompletedUpdateRun(run),

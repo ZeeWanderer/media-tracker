@@ -3,6 +3,7 @@ import {lookupAniListLatest} from "../../../infra/api/anilist/lookup";
 import {updateMediaSnapshot} from "../../../domain/media";
 import {extractAnilistId} from "../../../domain/media/links";
 import type {MediaItem} from "../../../domain/media/models";
+import type {PluginLogger} from "../../../infra/logging/pluginLogger";
 import {providerDelay, sameNumberArray, sameNumberRecord} from "./providerFlowUtils";
 
 export type AniListRefreshResult = {
@@ -10,6 +11,8 @@ export type AniListRefreshResult = {
 	status: "updated" | "unchanged" | "failed" | "skipped";
 	message: string;
 };
+
+type RefreshLogger = Pick<PluginLogger, "debug" | "warn">;
 
 function mergeNumberRecord(
 	base: Record<string, number> | undefined,
@@ -45,12 +48,18 @@ export async function refreshAniListLatest(
 	app: App,
 	item: MediaItem,
 	minDelayMs: number,
+	logger?: RefreshLogger,
 ): Promise<AniListRefreshResult> {
 	const linkId = item.anilistId ? String(item.anilistId) : undefined;
 	const parsed = linkId ? extractAnilistId(linkId) : undefined;
 	const fallbackId = item.anilistIds?.[0];
 	const anilistId = parsed ?? item.anilistId ?? fallbackId;
 	if (!anilistId) {
+		logger?.debug("refresh", "anilist_missing_id", "Skipping AniList refresh because no AniList ID was found.", {
+			title: item.title,
+			filePath: item.file.path,
+			anilistIds: item.anilistIds ?? [],
+		});
 		return {
 			provider: "anilist",
 			status: "skipped",
@@ -67,12 +76,32 @@ export async function refreshAniListLatest(
 		maxDepth: 10,
 	});
 	if (!result) {
+		logger?.warn("refresh", "anilist_lookup_failed", "AniList lookup failed.", {
+			title: item.title,
+			filePath: item.file.path,
+			anilistId,
+		});
 		return {
 			provider: "anilist",
 			status: "failed",
 			message: "AniList request failed.",
 		};
 	}
+	logger?.debug("refresh", "anilist_lookup_payload", "Received AniList lookup payload.", {
+		title: item.title,
+		filePath: item.file.path,
+		anilistId,
+		seasonIds: result.seasonIds,
+		seasonNumber: result.seasonNumber ?? null,
+		seasonTotal: result.seasonTotal ?? null,
+		seasonEpisodes: result.seasonEpisodes ?? null,
+		latestEpisode: result.latestEpisode ?? null,
+		nextEpisode: result.nextEpisode ?? null,
+		nextAiringAt: result.nextAiringAt ?? null,
+		mediaTitleEnglish: result.media.title?.english ?? null,
+		mediaTitleRomaji: result.media.title?.romaji ?? null,
+		mediaEpisodes: result.media.episodes ?? null,
+	});
 
 	const hasEpisodeData = result.latestEpisode !== undefined || result.nextEpisode !== undefined;
 	const storedIds = result.seasonIds.length ? result.seasonIds : [anilistId];
@@ -92,6 +121,13 @@ export async function refreshAniListLatest(
 			snapshot.anilistNextAiringAt = undefined;
 		});
 		await providerDelay(minDelayMs);
+		logger?.debug("refresh", "anilist_no_episode_data", "AniList lookup returned no episode data for anime item.", {
+			title: item.title,
+			filePath: item.file.path,
+			anilistId,
+			changed,
+			storedIds,
+		});
 		return {
 			provider: "anilist",
 			status: changed ? "updated" : "unchanged",
@@ -132,6 +168,20 @@ export async function refreshAniListLatest(
 		snapshot.anilistSeason = nextSeason;
 		snapshot.anilistSeasonTotal = nextSeasonTotal;
 		snapshot.anilistSeasonEpisodes = nextSeasonEpisodes;
+	});
+	logger?.debug("refresh", "anilist_snapshot_written", "Persisted AniList fields to note frontmatter.", {
+		title: item.title,
+		filePath: item.file.path,
+		anilistId,
+		changed,
+		storedIds,
+		nextSeason: nextSeason ?? null,
+		nextSeasonTotal: nextSeasonTotal ?? null,
+		nextSeasonEpisodes: nextSeasonEpisodes ?? null,
+		nextLatestEpisode: nextLatestEpisode ?? null,
+		nextEpisode: nextEpisode ?? null,
+		nextChapters: nextChapters ?? null,
+		nextVolumes: nextVolumes ?? null,
 	});
 
 	await providerDelay(minDelayMs);

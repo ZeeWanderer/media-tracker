@@ -21,6 +21,11 @@ const MEDIA_QUERY = `
 		Media(id: $id) {
 			id
 			type
+			title {
+				romaji
+				english
+				native
+			}
 			format
 			episodes
 			chapters
@@ -35,6 +40,11 @@ const MEDIA_QUERY = `
 					node {
 						id
 						type
+						title {
+							romaji
+							english
+							native
+						}
 						format
 						episodes
 						chapters

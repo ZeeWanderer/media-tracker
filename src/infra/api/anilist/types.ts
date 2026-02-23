@@ -11,9 +11,16 @@ export type AniListRelationType =
 	| "COMPILATION"
 	| "CONTAINS";
 
+export type AniListMediaTitle = {
+	romaji?: string | null;
+	english?: string | null;
+	native?: string | null;
+};
+
 export type AniListMedia = {
 	id: number;
 	type: "ANIME" | "MANGA";
+	title?: AniListMediaTitle | null;
 	format?: string | null;
 	episodes?: number | null;
 	chapters?: number | null;
@@ -46,4 +53,3 @@ export type AniListLatestLookup = {
 	nextEpisode?: number;
 	nextAiringAt?: number;
 };
-

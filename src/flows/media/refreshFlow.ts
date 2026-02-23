@@ -6,6 +6,9 @@ import {AniListRefreshResult, refreshAniListLatest} from "./providers/anilistPro
 import {refreshTmdbSeriesLatest, TmdbRefreshResult} from "./providers/tmdbProviderFlow";
 import type {MediaItem} from "../../domain/media/models";
 import type {UpdateLogAttempt, UpdateLogEntry, UpdateLogRun, UpdateProvider} from "../../core/updateTypes";
+import type {PluginLogger} from "../../infra/logging/pluginLogger";
+
+type RefreshLogger = Pick<PluginLogger, "debug" | "warn">;
 
 type RefreshItemResult = {
 	provider: UpdateProvider;
@@ -22,6 +25,22 @@ type QueuedRefreshTarget = {
 };
 
 const RUN_UPDATE_INTERVAL_MS = 250;
+
+function getItemDebugMeta(item: MediaItem): Record<string, unknown> {
+	return {
+		title: item.title,
+		filePath: item.file.path,
+		type: item.type,
+		anilistId: item.anilistId ?? null,
+		anilistIds: item.anilistIds ?? [],
+		tmdbId: item.tmdbId ?? null,
+		imdbId: item.imdbId ?? null,
+		status: item.status,
+		progress: item.progress ?? null,
+		season: item.season ?? null,
+		episode: item.episode ?? null,
+	};
+}
 
 function toEntry(item: MediaItem, result: RefreshItemResult): UpdateLogEntry {
 	return {
@@ -117,21 +136,35 @@ export async function refreshTrackedMediaLatest(
 	app: App,
 	settings: Readonly<MediaTrackerSettings>,
 	item: MediaItem,
+	logger?: RefreshLogger,
 ): Promise<RefreshItemResult> {
 	const tmdbMinDelayMs = settings.tmdbMinIntervalMs;
 	const anilistMinDelayMs = 0;
 	if (item.type === "manga") {
-		const result = mapProviderResult(await refreshAniListLatest(app, item, anilistMinDelayMs));
+		logger?.debug("refresh", "item_provider_selected", "Using AniList refresh for manga item.", {
+			...getItemDebugMeta(item),
+			queue: "anilist",
+		});
+		const result = mapProviderResult(await refreshAniListLatest(app, item, anilistMinDelayMs, logger));
 		return {
 			...result,
 			providersChecked: ["anilist"],
 		};
 	}
 	if (item.type === "anime") {
-		const aniListResult = await refreshAniListLatest(app, item, anilistMinDelayMs);
+		logger?.debug("refresh", "item_provider_selected", "Using AniList primary refresh for anime item.", {
+			...getItemDebugMeta(item),
+			queue: "anilist",
+		});
+		const aniListResult = await refreshAniListLatest(app, item, anilistMinDelayMs, logger);
 		const hasTmdbIdentity = Boolean(item.tmdbId || item.imdbId || getImdbIdFromLinks(item.links ?? []));
 		if (aniListResult.status === "failed" && TMDB_TYPES.has(item.type) && hasTmdbIdentity) {
-			const fallback = mapProviderResult(await refreshTmdbSeriesLatest(app, settings, item, tmdbMinDelayMs));
+			logger?.debug("refresh", "item_provider_fallback", "Falling back to TMDB after AniList failure.", {
+				...getItemDebugMeta(item),
+				anilistMessage: aniListResult.message,
+				hasTmdbIdentity,
+			});
+			const fallback = mapProviderResult(await refreshTmdbSeriesLatest(app, settings, item, tmdbMinDelayMs, logger));
 			return {
 				...fallback,
 				providersChecked: ["anilist", "tmdb"],
@@ -145,12 +178,17 @@ export async function refreshTrackedMediaLatest(
 		};
 	}
 	if (TMDB_TYPES.has(item.type)) {
-		const result = mapProviderResult(await refreshTmdbSeriesLatest(app, settings, item, tmdbMinDelayMs));
+		logger?.debug("refresh", "item_provider_selected", "Using TMDB refresh for item.", {
+			...getItemDebugMeta(item),
+			queue: "tmdb",
+		});
+		const result = mapProviderResult(await refreshTmdbSeriesLatest(app, settings, item, tmdbMinDelayMs, logger));
 		return {
 			...result,
 			providersChecked: ["tmdb"],
 		};
 	}
+	logger?.debug("refresh", "item_provider_skipped", "No provider mapped for item type.", getItemDebugMeta(item));
 	return {
 		provider: "none",
 		status: "skipped",
@@ -170,6 +208,7 @@ export async function refreshTrackedMedia(
 	items: MediaItem[],
 	onProgress?: (current: number, total: number) => void,
 	onRunUpdate?: (run: UpdateLogRun) => void,
+	logger?: RefreshLogger,
 ): Promise<UpdateLogRun> {
 	const startedAt = Date.now();
 	const targets = items
@@ -194,6 +233,12 @@ export async function refreshTrackedMedia(
 	let anilistCompleted = 0;
 	let tmdbCompleted = 0;
 	let lastRunUpdateAt = 0;
+	logger?.debug("refresh", "queue_prepared", "Prepared refresh queue ordering.", {
+		totalItems: items.length,
+		refreshTargets: total,
+		anilistTargets: anilistTargets.length,
+		tmdbTargets: tmdbTargets.length,
+	});
 	const buildProviderProgress = () => ({
 		anilist: {
 			total: anilistTotal,
@@ -237,6 +282,15 @@ export async function refreshTrackedMedia(
 
 	const commitItemResult = (queue: RefreshQueue, item: MediaItem, result: RefreshItemResult) => {
 		entries.push(toEntry(item, result));
+		logger?.debug("refresh", "item_result", "Processed refresh result for item.", {
+			...getItemDebugMeta(item),
+			queue,
+			provider: result.provider,
+			status: result.status,
+			message: result.message,
+			providersChecked: result.providersChecked,
+			attempts: result.attempts,
+		});
 		switch (result.status) {
 			case "updated":
 				updated += 1;
@@ -275,9 +329,14 @@ export async function refreshTrackedMedia(
 	const runQueue = async (queue: RefreshQueue, queueItems: MediaItem[]) => {
 		for (const item of queueItems) {
 			try {
-				const result = await refreshTrackedMediaLatest(app, settings, item);
+				const result = await refreshTrackedMediaLatest(app, settings, item, logger);
 				commitItemResult(queue, item, result);
 			} catch (error) {
+				logger?.warn("refresh", "item_unexpected_failure", "Unexpected error while refreshing item.", {
+					...getItemDebugMeta(item),
+					queue,
+					error: error instanceof Error ? error.message : String(error),
+				});
 				commitItemResult(queue, item, toUnexpectedFailure(queue, error));
 			}
 		}

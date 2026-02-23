@@ -182,7 +182,7 @@ export class TrackerInteractionController {
 			},
 				onRefreshLatest: () => {
 					void this.deps.runTask(async () => {
-						const result = await refreshTrackedMediaLatest(this.deps.app, this.deps.getSettings(), item);
+						const result = await refreshTrackedMediaLatest(this.deps.app, this.deps.getSettings(), item, this.deps.logger);
 					const meta = {
 						...this.getItemLogMeta(item),
 						provider: result.provider,
