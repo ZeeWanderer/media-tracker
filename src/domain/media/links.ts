@@ -21,6 +21,10 @@ export function extractAnilistId(value: string): number | null {
 	if (!trimmed.length) {
 		return null;
 	}
+	if (trimmed.startsWith("anilist:")) {
+		const id = Number(trimmed.replace("anilist:", ""));
+		return Number.isFinite(id) ? id : null;
+	}
 	if (/^\d+$/.test(trimmed)) {
 		return Number(trimmed);
 	}
@@ -34,6 +38,39 @@ export function extractAnilistId(value: string): number | null {
 			return null;
 		}
 		const id = Number(parts[1]);
+		return Number.isFinite(id) ? id : null;
+	} catch {
+		return null;
+	}
+}
+
+export function extractTmdbId(value: string): number | null {
+	const trimmed = value.trim();
+	if (!trimmed.length) {
+		return null;
+	}
+	if (/^\d+$/.test(trimmed)) {
+		return Number(trimmed);
+	}
+	try {
+		const url = new URL(trimmed.startsWith("http") ? trimmed : `https://${trimmed}`);
+		const hostname = url.hostname.toLowerCase();
+		if (!hostname.endsWith("themoviedb.org") && !hostname.endsWith("tmdb.org")) {
+			return null;
+		}
+		const parts = url.pathname.split("/").filter(Boolean);
+		if (parts.length < 2) {
+			return null;
+		}
+		const resource = parts[0]?.toLowerCase();
+		if (resource !== "tv" && resource !== "movie") {
+			return null;
+		}
+		const idMatch = parts[1]?.match(/^(\d+)/);
+		if (!idMatch?.[1]) {
+			return null;
+		}
+		const id = Number(idMatch[1]);
 		return Number.isFinite(id) ? id : null;
 	} catch {
 		return null;

@@ -29,17 +29,30 @@ export function migrateMediaSnapshotToLatest(
 	fromVersion: number,
 	snapshot: LatestMediaSnapshot,
 ): MediaSnapshotMigrationResult {
-	// Current baseline contains only the latest schema. We intentionally do not
-	// keep migration chains from historical versions in this codebase.
-	const unsupportedSourceVersion = fromVersion === 0 || fromVersion === CURRENT_MEDIA_SCHEMA_VERSION
-		? undefined
-		: fromVersion;
+	const appliedVersions: number[] = [];
+	let migratedSnapshot: LatestMediaSnapshot = {
+		...snapshot,
+		version: CURRENT_MEDIA_SCHEMA_VERSION,
+	};
+	let unsupportedSourceVersion: number | undefined;
+
+	switch (fromVersion) {
+		case 0:
+		case CURRENT_MEDIA_SCHEMA_VERSION:
+			break;
+		case 3:
+			appliedVersions.push(CURRENT_MEDIA_SCHEMA_VERSION);
+			break;
+		default:
+			unsupportedSourceVersion = fromVersion;
+			break;
+	}
 
 	return {
-		snapshot,
+		snapshot: migratedSnapshot,
 		fromVersion,
 		toVersion: CURRENT_MEDIA_SCHEMA_VERSION,
-		appliedVersions: [],
+		appliedVersions,
 		unsupportedSourceVersion,
 	};
 }

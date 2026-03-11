@@ -1,4 +1,5 @@
 import {MEDIA_STATUSES, MEDIA_TYPES} from "../domain/media/config";
+import {extractAnilistId, extractImdbId, extractTmdbId} from "../domain/media";
 import {getTitleSortKey} from "../domain/media/readModel";
 import {MEDIA_STATUS_LABELS} from "./mediaStatusLabels";
 import {MEDIA_TYPE_LABELS} from "./mediaTypeConfig";
@@ -31,17 +32,54 @@ export function matchesTrackerFilters(item: MediaItem, state: TrackerFilterState
 	return true;
 }
 
-export function normalizeTrackerSearchQuery(searchQuery: string): string {
-	return searchQuery.trim().toLowerCase();
+export type NormalizedTrackerSearchQuery = {
+	text: string;
+	imdbId?: string;
+	anilistId?: number;
+	tmdbId?: number;
+};
+
+export function normalizeTrackerSearchQuery(searchQuery: string): NormalizedTrackerSearchQuery {
+	const trimmed = searchQuery.trim();
+	return {
+		text: trimmed.toLowerCase(),
+		imdbId: extractImdbId(trimmed) ?? undefined,
+		anilistId: extractAnilistId(trimmed) ?? undefined,
+		tmdbId: extractTmdbId(trimmed) ?? undefined,
+	};
 }
 
-export function matchesTrackerSearch(item: MediaItem, normalizedSearchQuery: string): boolean {
-	if (!normalizedSearchQuery.length) {
+export function matchesTrackerSearch(item: MediaItem, normalizedSearchQuery: NormalizedTrackerSearchQuery): boolean {
+	const hasIdentityQuery = normalizedSearchQuery.imdbId !== undefined
+		|| normalizedSearchQuery.anilistId !== undefined
+		|| normalizedSearchQuery.tmdbId !== undefined;
+	if (!normalizedSearchQuery.text.length && !hasIdentityQuery) {
 		return true;
 	}
-	const title = item.title.toLowerCase();
+	const searchableTitles = [item.title, ...(item.alternateTitles ?? [])]
+		.map((title) => title.toLowerCase());
+	if (searchableTitles.some((title) => title.includes(normalizedSearchQuery.text))) {
+		return true;
+	}
 	const author = item.author ? item.author.toLowerCase() : "";
-	return title.includes(normalizedSearchQuery) || author.includes(normalizedSearchQuery);
+	if (author.includes(normalizedSearchQuery.text)) {
+		return true;
+	}
+	if (normalizedSearchQuery.imdbId && item.imdbId?.toLowerCase() === normalizedSearchQuery.imdbId) {
+		return true;
+	}
+	if (normalizedSearchQuery.anilistId !== undefined) {
+		if (item.anilistId === normalizedSearchQuery.anilistId) {
+			return true;
+		}
+		if (item.anilistIds?.includes(normalizedSearchQuery.anilistId)) {
+			return true;
+		}
+	}
+	if (normalizedSearchQuery.tmdbId !== undefined && item.tmdbId === normalizedSearchQuery.tmdbId) {
+		return true;
+	}
+	return false;
 }
 
 export function sortTrackerItems(items: MediaItem[], state: TrackerFilterState): MediaItem[] {

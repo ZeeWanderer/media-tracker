@@ -124,6 +124,7 @@ export async function updateMediaFrontmatter(
 function cloneSnapshot(snapshot: LatestMediaSnapshot): LatestMediaSnapshot {
 	return {
 		...snapshot,
+		alternateTitles: snapshot.alternateTitles ? [...snapshot.alternateTitles] : undefined,
 		links: [...(snapshot.links ?? [])],
 		anilistIds: snapshot.anilistIds ? [...snapshot.anilistIds] : undefined,
 		tmdbSeasonEpisodes: snapshot.tmdbSeasonEpisodes ? {...snapshot.tmdbSeasonEpisodes} : undefined,

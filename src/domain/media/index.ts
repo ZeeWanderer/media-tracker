@@ -45,9 +45,16 @@ export {
 	type TrackerComputationItem,
 } from "./tracker";
 export {
+	collectAlternateTitles,
+	LEGACY_ALTERNATE_TITLE_FIELDS,
+	mergeAlternateTitles,
+	normalizeAlternateTitles,
+} from "./titles";
+export {
 	collectLinks,
 	extractAnilistId,
 	extractImdbId,
+	extractTmdbId,
 	filterAnilistLinks,
 	filterImdbLinks,
 	formatLinkLabel,

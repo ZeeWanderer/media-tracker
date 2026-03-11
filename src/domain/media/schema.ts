@@ -5,7 +5,7 @@ import {
 	type MediaType,
 } from "./config";
 
-export const CURRENT_MEDIA_SCHEMA_VERSION = 3;
+export const CURRENT_MEDIA_SCHEMA_VERSION = 4;
 export const MEDIA_SCHEMA_VERSION_KEY = "mediaTrackerVersion";
 
 export const MEDIA_TYPE_VALUES: MediaType[] = [...MEDIA_TYPES];
@@ -13,11 +13,12 @@ export const MEDIA_STATUS_VALUES: MediaStatus[] = [...MEDIA_STATUSES];
 
 export type MediaSchemaVersion = typeof CURRENT_MEDIA_SCHEMA_VERSION;
 
-export interface MediaSnapshotV3 {
+export interface MediaSnapshotV4 {
 	version: MediaSchemaVersion;
 	type?: MediaType;
 	status: MediaStatus;
 	title?: string;
+	alternateTitles?: string[];
 	author?: string;
 	progress?: string;
 	progressLabel?: string;
@@ -48,7 +49,7 @@ export interface MediaSnapshotV3 {
 	anilistSeasonEpisodes?: Record<string, number>;
 }
 
-export type LatestMediaSnapshot = MediaSnapshotV3;
+export type LatestMediaSnapshot = MediaSnapshotV4;
 
 export type MediaFrontmatterFieldKind =
 	| "string"
@@ -88,6 +89,7 @@ export const MEDIA_FRONTMATTER_SCHEMA: MediaFrontmatterSchema = {
 			description: "Tracking status.",
 		},
 		title: {kind: "string"},
+		alternateTitles: {kind: "string-array"},
 		author: {kind: "string"},
 		progress: {kind: "string"},
 		progressLabel: {kind: "string"},

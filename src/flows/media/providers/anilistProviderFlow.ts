@@ -1,6 +1,6 @@
 import {App} from "obsidian";
 import {lookupAniListLatest} from "../../../infra/api/anilist/lookup";
-import {updateMediaSnapshot} from "../../../domain/media";
+import {mergeAlternateTitles, updateMediaSnapshot} from "../../../domain/media";
 import {extractAnilistId} from "../../../domain/media/links";
 import type {MediaItem} from "../../../domain/media/models";
 import type {PluginLogger} from "../../../infra/logging/pluginLogger";
@@ -41,6 +41,21 @@ function mergeNumberRecord(
 		Array.from(merged.entries())
 			.sort((a, b) => a[0] - b[0])
 			.map(([key, value]) => [String(key), value] as const),
+	);
+}
+
+function getAniListAlternateTitles(item: MediaItem, mediaTitles: {
+	english?: string | null;
+	romaji?: string | null;
+	native?: string | null;
+} | null | undefined): string[] | undefined {
+	return mergeAlternateTitles(
+		item.title,
+		[
+			mediaTitles?.english ?? undefined,
+			mediaTitles?.romaji ?? undefined,
+			mediaTitles?.native ?? undefined,
+		].filter((value): value is string => typeof value === "string"),
 	);
 }
 
@@ -102,6 +117,7 @@ export async function refreshAniListLatest(
 		mediaTitleRomaji: result.media.title?.romaji ?? null,
 		mediaEpisodes: result.media.episodes ?? null,
 	});
+	const providerAlternateTitles = getAniListAlternateTitles(item, result.media.title);
 
 	const hasEpisodeData = result.latestEpisode !== undefined || result.nextEpisode !== undefined;
 	const storedIds = result.seasonIds.length ? result.seasonIds : [anilistId];
@@ -112,14 +128,19 @@ export async function refreshAniListLatest(
 			|| item.anilistLatestEpisode !== undefined
 			|| item.anilistNextEpisode !== undefined
 			|| item.anilistNextAiringAt !== undefined;
-		await updateMediaSnapshot(app, item.file, (snapshot) => {
-			snapshot.anilistId = anilistId;
-			snapshot.anilistIds = storedIds;
-			snapshot.anilistLastChecked = Date.now();
-			snapshot.anilistLatestEpisode = undefined;
-			snapshot.anilistNextEpisode = undefined;
-			snapshot.anilistNextAiringAt = undefined;
-		});
+			await updateMediaSnapshot(app, item.file, (snapshot) => {
+				snapshot.anilistId = anilistId;
+				snapshot.anilistIds = storedIds;
+				snapshot.anilistLastChecked = Date.now();
+				snapshot.anilistLatestEpisode = undefined;
+				snapshot.anilistNextEpisode = undefined;
+				snapshot.anilistNextAiringAt = undefined;
+				snapshot.alternateTitles = mergeAlternateTitles(
+					snapshot.title,
+					snapshot.alternateTitles,
+					providerAlternateTitles,
+				);
+			});
 		await providerDelay(minDelayMs);
 		logger?.debug("refresh", "anilist_no_episode_data", "AniList lookup returned no episode data for anime item.", {
 			title: item.title,
@@ -168,6 +189,11 @@ export async function refreshAniListLatest(
 		snapshot.anilistSeason = nextSeason;
 		snapshot.anilistSeasonTotal = nextSeasonTotal;
 		snapshot.anilistSeasonEpisodes = nextSeasonEpisodes;
+		snapshot.alternateTitles = mergeAlternateTitles(
+			snapshot.title,
+			snapshot.alternateTitles,
+			providerAlternateTitles,
+		);
 	});
 	logger?.debug("refresh", "anilist_snapshot_written", "Persisted AniList fields to note frontmatter.", {
 		title: item.title,

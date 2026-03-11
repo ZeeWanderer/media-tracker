@@ -27,7 +27,7 @@ export function renderTrackerControls(
 	const searchWrap = controls.createDiv({cls: "media-tracker__search-wrap"});
 	const search = searchWrap.createEl("input");
 	search.type = "search";
-	search.placeholder = "Search title or author";
+	search.placeholder = "Search title, alias, author, or ID";
 	search.value = state.searchQuery;
 	search.classList.add("media-tracker__search");
 	const clearButton = searchWrap.createEl("button");

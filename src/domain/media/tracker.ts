@@ -1,5 +1,10 @@
 import {ANILIST_TYPES, NOVEL_PROGRESS_TYPES, SEASON_EPISODE_TYPES, TMDB_TYPES} from "./config";
-import {incrementProgressNumericString, parseChapterProgressValue, parseMangaProgress, type MangaProgress} from "./progress";
+import {
+	incrementChapterProgressForType,
+	parseChapterProgressValue,
+	parseMangaProgress,
+	type MangaProgress,
+} from "./progress";
 import type {MediaItem} from "./models";
 
 export type TrackerComputationItem = Pick<
@@ -278,12 +283,12 @@ export function getNextProgressValue(item: TrackerComputationItem): string | nul
 	const raw = item.progressRaw?.trim();
 	const rawChapter = raw ? parseChapterProgressValue(raw) : null;
 	if (rawChapter) {
-		return incrementProgressNumericString(rawChapter);
+		return incrementChapterProgressForType(item.type, rawChapter);
 	}
 	const label = item.progressLabel?.trim() ?? item.progress?.trim();
 	const labelChapter = label ? parseChapterProgressValue(label) : null;
 	if (!labelChapter) {
 		return null;
 	}
-	return incrementProgressNumericString(labelChapter);
+	return incrementChapterProgressForType(item.type, labelChapter);
 }

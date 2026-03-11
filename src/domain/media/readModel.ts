@@ -64,6 +64,7 @@ function parseMediaItem(file: TFile, app: App, baseFolder: string): MediaItem | 
 	return {
 		file,
 		title,
+		alternateTitles: snapshot.alternateTitles ?? [],
 		type,
 		status,
 		author: snapshot.author,

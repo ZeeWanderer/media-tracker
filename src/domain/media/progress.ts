@@ -97,26 +97,38 @@ export function parseChapterProgressValue(value: string): string | null {
 export function incrementProgressNumericString(value: string): string {
 	const decimalMatch = value.match(/^(\d+)\.(\d+)$/);
 	if (decimalMatch?.[1] && decimalMatch[2]) {
-		const whole = Number.parseInt(decimalMatch[1], 10);
 		const fractional = decimalMatch[2];
-		if (Number.isNaN(whole)) {
-			return value;
-		}
-		// Manga special chapters are usually ".5", and the next canonical chapter is the next integer.
-		if (fractional === "5") {
-			return String(whole + 1);
-		}
 		const next = Number.parseInt(fractional, 10);
 		if (Number.isNaN(next)) {
 			return value;
 		}
-		return `${whole}.${next + 1}`;
+		return `${decimalMatch[1]}.${next + 1}`;
 	}
 	const next = Number.parseInt(value, 10);
 	if (Number.isNaN(next)) {
 		return value;
 	}
 	return String(next + 1);
+}
+
+export function incrementMangaProgressNumericString(value: string): string {
+	const decimalMatch = value.match(/^(\d+)\.(\d+)$/);
+	if (decimalMatch?.[1] && decimalMatch[2] === "5") {
+		const whole = Number.parseInt(decimalMatch[1], 10);
+		if (Number.isNaN(whole)) {
+			return value;
+		}
+		// Manga special chapters are usually ".5", and the next canonical chapter is the next integer.
+		return String(whole + 1);
+	}
+	return incrementProgressNumericString(value);
+}
+
+export function incrementChapterProgressForType(type: MediaType, value: string): string {
+	if (type === "manga") {
+		return incrementMangaProgressNumericString(value);
+	}
+	return incrementProgressNumericString(value);
 }
 
 export function parseMangaProgress(value: string): MangaProgress | null {

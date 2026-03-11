@@ -4,6 +4,7 @@ import type {MediaStatus, MediaType} from "./config";
 export interface MediaItem {
 	file: TFile;
 	title: string;
+	alternateTitles: string[];
 	type: MediaType;
 	status: MediaStatus;
 	author?: string;

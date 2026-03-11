@@ -12,10 +12,12 @@ import {
 	normalizeSchemaFieldValue,
 	parseFieldValueByKind,
 	parseNumberRecord,
+	parseStringArray,
 	serializeFieldValueByKind,
 	toFiniteInteger,
 	toTrimmedString,
 } from "./fieldCodecs";
+import {collectAlternateTitles, LEGACY_ALTERNATE_TITLE_FIELDS, normalizeAlternateTitles} from "./titles";
 
 export type MediaValidationIssue = {
 	field: string;
@@ -92,6 +94,8 @@ export function decodeLatestMediaSnapshot(frontmatter: Record<string, unknown>):
 	const anilistIds = parseAnilistIds(frontmatter);
 	const anilistId = anilistIds?.[0];
 	const imdbId = getImdbIdFromFrontmatter(frontmatter) ?? getImdbIdFromLinks(links);
+	const primaryTitle = toTrimmedString(schemaDecoded.title);
+	const alternateTitles = collectAlternateTitles(frontmatter, primaryTitle);
 
 	const snapshot: LatestMediaSnapshot = {
 		version: CURRENT_MEDIA_SCHEMA_VERSION,
@@ -104,6 +108,12 @@ export function decodeLatestMediaSnapshot(frontmatter: Record<string, unknown>):
 			continue;
 		}
 		snapshotToRecord(snapshot)[key] = value;
+	}
+	if (primaryTitle) {
+		snapshot.title = primaryTitle;
+	}
+	if (alternateTitles?.length) {
+		snapshot.alternateTitles = alternateTitles;
 	}
 	if (imdbId) {
 		snapshot.imdbId = imdbId;
@@ -150,6 +160,11 @@ export function sanitizeLatestMediaSnapshot(snapshot: LatestMediaSnapshot): Late
 		...normalizedSnapshot,
 		type: normalizedRecord.type as MediaType | undefined,
 		status: (normalizedRecord.status as MediaStatus | undefined) ?? "planned",
+		title: toTrimmedString(normalizedRecord.title),
+		alternateTitles: normalizeAlternateTitles(
+			parseStringArray(normalizedRecord.alternateTitles),
+			toTrimmedString(normalizedRecord.title),
+		),
 		imdbId: toTrimmedString(normalizedRecord.imdbId),
 		anilistId: normalizedAnilistId,
 		anilistIds: normalizedAnilistIds,
@@ -228,4 +243,9 @@ export function encodeLatestMediaSnapshot(
 	}
 
 	setLinks(frontmatter, snapshot.links ?? []);
+	for (const key of LEGACY_ALTERNATE_TITLE_FIELDS) {
+		if (key in frontmatter) {
+			delete frontmatter[key];
+		}
+	}
 }

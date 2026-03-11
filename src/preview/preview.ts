@@ -156,7 +156,7 @@ if (componentsContainer && mode === "components") {
 		const input = document.createElement("input");
 		input.className = "media-tracker__search";
 		input.type = "search";
-		input.placeholder = "Search title or author";
+		input.placeholder = "Search title, alias, author, or ID";
 		searchWrap.appendChild(input);
 		const clear = document.createElement("button");
 		clear.className = "media-tracker__search-clear is-visible";
