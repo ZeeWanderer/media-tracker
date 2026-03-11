@@ -82,6 +82,7 @@ export function renderCard(item: MediaItemLike, handlers: RenderHandlers): HTMLE
 	titleRow.classList.add("media-tracker__card-title");
 	const titleText = document.createElement("span");
 	titleText.textContent = item.title;
+	titleText.addEventListener("click", () => handlers.onCopyTitle?.(item));
 	const typePill = document.createElement("span");
 	typePill.textContent = MEDIA_TYPE_LABELS[item.type];
 	typePill.classList.add("media-tracker__pill");

@@ -27,6 +27,7 @@ document.body.classList.add("preview-scope");
 
 const handlers: RenderHandlers = {
 	onOpenNote: () => {},
+	onCopyTitle: () => {},
 	onContextMenu: (event) => event.preventDefault(),
 	onStatusChange: () => {},
 	onProgressEdit: () => {},

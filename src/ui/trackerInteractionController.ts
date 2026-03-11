@@ -43,6 +43,9 @@ export class TrackerInteractionController {
 						await this.deps.app.workspace.getLeaf("tab").openFile(item.file);
 					}, `Failed to open "${item.title}".`);
 				},
+			onCopyTitle: (item) => {
+				void this.copyItemTitle(item);
+			},
 			onContextMenu: (event, item) => {
 				event.preventDefault();
 				this.openCardMenu(event, item);
@@ -91,6 +94,15 @@ export class TrackerInteractionController {
 		};
 	}
 
+	private async copyItemTitle(item: MediaItem) {
+		const copied = await this.copyText(item.title);
+		if (!copied) {
+			new Notice(`Failed to copy "${item.title}".`);
+			return;
+		}
+		new Notice(`Copied "${item.title}".`);
+	}
+
 	private getItemLogMeta(item: MediaItem): Record<string, unknown> {
 		return {
 			title: item.title,
@@ -98,6 +110,34 @@ export class TrackerInteractionController {
 			type: item.type,
 			status: item.status,
 		};
+	}
+
+	private async copyText(value: string): Promise<boolean> {
+		try {
+			if (navigator.clipboard?.writeText) {
+				await navigator.clipboard.writeText(value);
+				return true;
+			}
+		} catch {
+			// Fall through to legacy copy path.
+		}
+
+		const textarea = document.createElement("textarea");
+		textarea.value = value;
+		textarea.setAttribute("readonly", "true");
+		textarea.style.position = "fixed";
+		textarea.style.opacity = "0";
+		textarea.style.pointerEvents = "none";
+		document.body.appendChild(textarea);
+		textarea.select();
+		textarea.setSelectionRange(0, textarea.value.length);
+		try {
+			return document.execCommand("copy");
+		} catch {
+			return false;
+		} finally {
+			textarea.remove();
+		}
 	}
 
 	private openProgressEditor(target: HTMLElement, item: MediaItem) {

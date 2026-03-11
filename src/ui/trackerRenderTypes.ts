@@ -8,6 +8,7 @@ export type MediaItemLike = MediaItem;
 
 export type RenderHandlers = {
 	onOpenNote?: (item: MediaItemLike) => void;
+	onCopyTitle?: (item: MediaItemLike) => void;
 	onContextMenu?: (event: MouseEvent, item: MediaItemLike) => void;
 	onStatusChange?: (item: MediaItemLike, status: MediaStatus) => void;
 	onProgressEdit?: (target: HTMLElement, item: MediaItemLike) => void;
