@@ -8,6 +8,7 @@ import {
 	parseAheadBehind,
 	runGit,
 	summarizeGitError,
+	type GitCommandResult,
 } from "./gitProcess";
 import {
 	resolveCommitScopePaths,
@@ -93,6 +94,14 @@ function formatDateTime(value: Date): string {
 
 export function getUpdateCommitMessage(value: Date = new Date()): string {
 	return `[update] ${formatDateTime(value)}`;
+}
+
+function isRejectedBecauseBehind(result: GitCommandResult): boolean {
+	const output = `${result.stdout}\n${result.stderr}`.toLowerCase();
+	return output.includes("non-fast-forward")
+		|| output.includes("fetch first")
+		|| output.includes("updates were rejected")
+		|| output.includes("tip of your current branch is behind");
 }
 
 export async function isVaultGitRepository(app: App): Promise<boolean> {
@@ -257,6 +266,14 @@ export async function createVaultUpdateCommit(
 		return {
 			status: "created_and_pushed",
 			message: `Created and pushed commit ${commitMessage}.`,
+			commitMessage,
+		};
+	}
+
+	if (isRejectedBecauseBehind(pushResult)) {
+		return {
+			status: "needs_pull",
+			message: `Commit ${commitMessage} created, but push was rejected because the branch is behind upstream. Pull first, then push.`,
 			commitMessage,
 		};
 	}
