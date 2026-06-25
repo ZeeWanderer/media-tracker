@@ -1,5 +1,8 @@
 import {App, DataAdapter, requestUrl} from "obsidian";
-import {getFaviconCacheKey as getDomainFaviconCacheKey} from "../../domain/media/links";
+import {
+	getFaviconCacheKey as getDomainFaviconCacheKey,
+	toLinkUrl,
+} from "../../domain/media/links";
 import {ensureAdapterDirectory} from "../storage/adapterPath";
 import {getPluginCacheDirectory} from "../storage/pluginPaths";
 
@@ -23,6 +26,11 @@ type FaviconDiskIndex = {
 type FaviconMemoryEntry = {
 	url: string;
 	byteLength: number;
+};
+
+type FetchedFavicon = {
+	buffer: ArrayBuffer;
+	contentType: string;
 };
 
 export type DesktopFaviconCacheOptions = {
@@ -193,6 +201,28 @@ function headerLookup(headers: Record<string, string> | undefined, name: string)
 	return undefined;
 }
 
+function getDeclaredFaviconUrl(html: string, pageUrl: string): string | null {
+	try {
+		const document = new DOMParser().parseFromString(html, "text/html");
+		const links = Array.from(document.querySelectorAll<HTMLLinkElement>("link[href]"));
+		const icon = links.find((link) => link.relList.contains("icon"))
+			?? links.find((link) => link.rel.toLowerCase() === "apple-touch-icon");
+		if (!icon) {
+			return null;
+		}
+		const href = icon.getAttribute("href");
+		if (!href) {
+			return null;
+		}
+		const resolved = new URL(href, pageUrl);
+		return resolved.protocol === "http:" || resolved.protocol === "https:"
+			? resolved.toString()
+			: null;
+	} catch {
+		return null;
+	}
+}
+
 class FaviconMemoryStore {
 	private readonly entries = new Map<string, FaviconMemoryEntry>();
 	private bytes = 0;
@@ -308,7 +338,7 @@ export class DesktopFaviconCache {
 			return inflight;
 		}
 
-		const task = this.loadOrFetchFavicon(key);
+		const task = this.loadOrFetchFavicon(key, toLinkUrl(link) ?? key);
 		this.inflight.set(key, task);
 		try {
 			return await task;
@@ -325,7 +355,7 @@ export class DesktopFaviconCache {
 		this.memoryStore.set(key, url, byteLength);
 	}
 
-	private async loadOrFetchFavicon(origin: string): Promise<string | null> {
+	private async loadOrFetchFavicon(origin: string, pageUrl: string): Promise<string | null> {
 		const index = await this.loadDiskIndex();
 		const diskEntry = index.entries[origin];
 		if (diskEntry) {
@@ -336,7 +366,7 @@ export class DesktopFaviconCache {
 			delete index.entries[origin];
 			await this.saveDiskIndex(index);
 		}
-		return this.fetchAndStoreFavicon(origin);
+		return this.fetchAndStoreFavicon(origin, pageUrl);
 	}
 
 	private async promoteDiskEntry(origin: string, entry: FaviconDiskEntry): Promise<string | null> {
@@ -354,10 +384,9 @@ export class DesktopFaviconCache {
 		}
 	}
 
-	private async fetchAndStoreFavicon(origin: string): Promise<string | null> {
-		const faviconUrl = `${origin}/favicon.ico`;
+	private async fetchFaviconImage(url: string): Promise<FetchedFavicon | null> {
 		try {
-				const response = await requestUrl({url: faviconUrl});
+			const response = await requestUrl({url});
 			if (typeof response.status === "number" && response.status >= 400) {
 				return null;
 			}
@@ -370,7 +399,37 @@ export class DesktopFaviconCache {
 			if (responseContentType && !responseContentType.toLowerCase().includes("image/")) {
 				return null;
 			}
-			const contentType = normalizeContentType(responseContentType);
+			return {
+				buffer,
+				contentType: normalizeContentType(responseContentType),
+			};
+		} catch {
+			return null;
+		}
+	}
+
+	private async discoverFavicon(pageUrl: string): Promise<FetchedFavicon | null> {
+		try {
+			const response = await requestUrl({url: pageUrl});
+			if (typeof response.status === "number" && response.status >= 400) {
+				return null;
+			}
+			const faviconUrl = getDeclaredFaviconUrl(response.text, pageUrl);
+			return faviconUrl ? this.fetchFaviconImage(faviconUrl) : null;
+		} catch {
+			return null;
+		}
+	}
+
+	private async fetchAndStoreFavicon(origin: string, pageUrl: string): Promise<string | null> {
+		const fetched = await this.fetchFaviconImage(`${origin}/favicon.ico`)
+			?? await this.discoverFavicon(pageUrl);
+		if (!fetched) {
+			return null;
+		}
+
+		try {
+			const {buffer, contentType} = fetched;
 			const fileName = getDiskFileName(origin, contentType);
 			const cacheDir = getCacheDirectory(this.app, this.pluginId);
 			await ensureAdapterDirectory(this.adapter, cacheDir);
