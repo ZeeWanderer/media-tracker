@@ -96,7 +96,7 @@
 
 .media-tracker__table-row {
 	display: grid;
-	grid-template-columns: 280px 120px 80px 110px 1fr;
+	grid-template-columns: 280px 220px 80px 110px 1fr;
 	gap: 8px;
 	align-items: center;
 	padding: 4px 0;
@@ -240,6 +240,33 @@
 	display: inline-flex;
 	align-items: center;
 	gap: 4px;
+}
+
+.media-tracker__progress-lanes {
+	display: grid;
+	gap: 4px;
+	width: 100%;
+	min-width: 0;
+}
+
+.media-tracker__progress-lane {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	min-width: 0;
+}
+
+.media-tracker__progress-lane-label {
+	flex: 0 0 62px;
+	color: var(--text-faint);
+	font-size: 9px;
+	font-weight: 600;
+	letter-spacing: 0.06em;
+	text-transform: uppercase;
+}
+
+.media-tracker__progress--repeat .media-tracker__progress-control {
+	box-shadow: inset 2px 0 0 var(--interactive-accent);
 }
 
 .media-tracker__progress-control {

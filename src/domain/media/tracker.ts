@@ -246,6 +246,9 @@ export function getNextProgressValue(item: TrackerComputationItem): string | nul
 		const anilistSeasonEpisodes = item.type === "anime" ? item.anilistSeasonEpisodes : undefined;
 		const anilistSeasonCount = anilistSeasonEpisodes?.[seasonKey];
 		const anilistLatestEpisode = item.type === "anime" ? item.anilistLatestEpisode : undefined;
+		if (item.type === "anime" && item.anilistSeasonTotal !== undefined && item.season > item.anilistSeasonTotal) {
+			return null;
+		}
 		const knownCurrentSeasonEpisodeCount = anilistSeasonCount ?? (isLatestSeason
 			? item.tmdbLatestEpisode
 			: item.tmdbSeasonEpisodes?.[seasonKey]);

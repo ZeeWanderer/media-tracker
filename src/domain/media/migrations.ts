@@ -41,6 +41,9 @@ export function migrateMediaSnapshotToLatest(
 		case CURRENT_MEDIA_SCHEMA_VERSION:
 			break;
 		case 3:
+			appliedVersions.push(4, CURRENT_MEDIA_SCHEMA_VERSION);
+			break;
+		case 4:
 			appliedVersions.push(CURRENT_MEDIA_SCHEMA_VERSION);
 			break;
 		default:

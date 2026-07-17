@@ -134,6 +134,16 @@ if (type === "series" || type === "anime") {
 	return undefined;
 }
 
+function buildRepeatProgress(type, frontmatter) {
+	return buildProgress(type, {
+		progress: frontmatter.repeatProgress,
+		progressLabel: frontmatter.repeatProgressLabel,
+		progressUnit: frontmatter.repeatProgressUnit,
+		season: frontmatter.repeatSeason,
+		episode: frontmatter.repeatEpisode,
+	});
+}
+
 function parseValue(raw) {
 	const trimmed = raw.trim();
 	if (!trimmed) {
@@ -235,8 +245,21 @@ function parseMediaItem(filePath, frontmatter) {
 		status,
 		author,
 		progress: buildProgress(type, frontmatter),
+		progressRaw: normalizeString(frontmatter.progress),
+		progressLabel: normalizeString(frontmatter.progressLabel),
+		progressUnit: normalizeString(frontmatter.progressUnit),
 		season: season ? Number(season) : undefined,
 		episode: episode ? Number(episode) : undefined,
+		repeatProgress: buildRepeatProgress(type, frontmatter),
+		repeatProgressRaw: normalizeString(frontmatter.repeatProgress),
+		repeatProgressLabel: normalizeString(frontmatter.repeatProgressLabel),
+		repeatProgressUnit: normalizeString(frontmatter.repeatProgressUnit),
+		repeatSeason: normalizeString(frontmatter.repeatSeason) !== undefined
+			? Number(frontmatter.repeatSeason)
+			: undefined,
+		repeatEpisode: normalizeString(frontmatter.repeatEpisode) !== undefined
+			? Number(frontmatter.repeatEpisode)
+			: undefined,
 		year: year ? Number(year) : undefined,
 		links: collectLinks(frontmatter),
 		imdbId,
@@ -278,6 +301,31 @@ function buildAnnouncedSeasonPreviewItem() {
 	};
 }
 
+function buildRepeatingPreviewItem() {
+	return {
+		title: "PSYCHO-PASS",
+		type: "anime",
+		status: "active",
+		season: 3,
+		episode: 8,
+		progress: "S3E8",
+		repeatSeason: 1,
+		repeatEpisode: 6,
+		repeatProgress: "S1E6",
+		links: [],
+		anilistId: 13601,
+		anilistLastChecked: 1,
+		anilistLatestEpisode: 8,
+		anilistSeason: 3,
+		anilistSeasonTotal: 3,
+		anilistSeasonEpisodes: {
+			"1": 22,
+			"2": 11,
+			"3": 8,
+		},
+	};
+}
+
 async function loadMediaItems(mediaDir) {
 	let entries;
 	try {
@@ -312,6 +360,13 @@ export async function generatePreviewData() {
 	const items = await loadMediaItems(mediaDir);
 	const limited = Number.isFinite(maxItems) && maxItems > 0 ? items.slice(0, maxItems) : items;
 	const previewItems = [...limited];
+	const repeatingItem = buildRepeatingPreviewItem();
+	if (!previewItems.some((item) => item.title === repeatingItem.title)) {
+		if (Number.isFinite(maxItems) && maxItems > 0 && previewItems.length >= maxItems) {
+			previewItems.pop();
+		}
+		previewItems.unshift(repeatingItem);
+	}
 	const announcedItem = buildAnnouncedSeasonPreviewItem();
 	if (!previewItems.some((item) => item.title === announcedItem.title)) {
 		if (Number.isFinite(maxItems) && maxItems > 0 && previewItems.length >= maxItems) {

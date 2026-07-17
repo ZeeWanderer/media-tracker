@@ -27,8 +27,11 @@ export {
 } from "./draft";
 export {
 	buildProgressDisplay,
+	buildRepeatProgressDisplay,
 	formatSeasonEpisodeProgress,
+	hasRepeatProgress,
 	incrementProgressNumericString,
+	isRepeatProgressCaughtUp,
 	normalizeProgressInput,
 	parseChapterProgressValue,
 	parseMangaProgress,
@@ -36,6 +39,8 @@ export {
 	type MangaProgress,
 	type ParsedProgressInput,
 	type ProgressDisplaySnapshot,
+	type RepeatProgressFields,
+	type RepeatProgressComparisonSnapshot,
 	type SeasonEpisodeProgress,
 } from "./progress";
 export {

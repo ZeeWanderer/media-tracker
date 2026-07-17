@@ -1,55 +1,112 @@
 import {NOVEL_PROGRESS_TYPES, SEASON_EPISODE_TYPES} from "../domain/media/config";
+import {hasRepeatProgress} from "../domain/media/progress";
 import {buildLatestBadges, getNextProgressValue, type TrackerBadgeDescriptor} from "../domain/media/tracker";
 import {setAttrSafe} from "./domAttrs";
 import type {MediaItemLike, RenderHandlers} from "./trackerRenderTypes";
 
 export function renderProgressMeta(item: MediaItemLike, handlers: RenderHandlers, compact = false): HTMLElement {
+	return renderProgressControl(item, handlers, compact, false);
+}
+
+export function renderRepeatProgressMeta(item: MediaItemLike, handlers: RenderHandlers, compact = false): HTMLElement {
+	return renderProgressControl(item, handlers, compact, true);
+}
+
+function renderProgressControl(
+	item: MediaItemLike,
+	handlers: RenderHandlers,
+	compact: boolean,
+	repeat: boolean,
+): HTMLElement {
 	const wrapper = document.createElement("div");
 	wrapper.classList.add("media-tracker__progress");
+	if (repeat) {
+		wrapper.classList.add("media-tracker__progress--repeat");
+	}
 	if (compact) {
 		wrapper.classList.add("media-tracker__progress--compact");
 	}
-	const hasProgress = Boolean(item.progress?.trim());
+	const progress = repeat ? item.repeatProgress : item.progress;
+	const hasProgress = Boolean(progress?.trim());
 
 	const label = document.createElement("button");
 	label.type = "button";
 	label.classList.add("media-tracker__progress-label");
 	if (hasProgress) {
-		label.textContent = item.progress ?? "";
+		label.textContent = progress ?? "";
 	} else {
 		label.classList.add("media-tracker__progress-label--empty");
 		label.textContent = " ";
-		setAttrSafe(label, "aria-label", "Set progress");
+		setAttrSafe(label, "aria-label", repeat ? "Set repeat progress" : "Set progress");
 	}
 	label.addEventListener("click", (event) => {
 		event.preventDefault();
-		handlers.onProgressEdit?.(label, item);
+		if (repeat) {
+			handlers.onRepeatProgressEdit?.(label, item);
+		} else {
+			handlers.onProgressEdit?.(label, item);
+		}
 	});
 	const control = document.createElement("div");
 	control.classList.add("media-tracker__progress-control");
 	control.appendChild(label);
 
 	// Keep auto-increment gated on explicit progress, but always render latest badges.
-	const nextValue = hasProgress ? getNextProgressValue(item) : null;
+	const progressItem = repeat ? {
+		...item,
+		progress: item.repeatProgress,
+		progressRaw: item.repeatProgressRaw,
+		progressLabel: item.repeatProgressLabel,
+		progressUnit: item.repeatProgressUnit,
+		season: item.repeatSeason,
+		episode: item.repeatEpisode,
+	} : item;
+	const nextValue = hasProgress ? getNextProgressValue(progressItem) : null;
 	if (nextValue) {
 		const increment = document.createElement("button");
 		increment.type = "button";
 		increment.classList.add("media-tracker__progress-add");
 		increment.appendChild(createPlusIcon());
-		setAttrSafe(increment, "title", "Advance chapter");
+		setAttrSafe(increment, "title", repeat ? "Advance repeat progress" : "Advance progress");
 		increment.addEventListener("click", (event) => {
 			event.preventDefault();
-			handlers.onProgressAdvance?.(increment, item, nextValue);
+			if (repeat) {
+				handlers.onRepeatProgressAdvance?.(increment, item, nextValue);
+			} else {
+				handlers.onProgressAdvance?.(increment, item, nextValue);
+			}
 		});
 		control.appendChild(increment);
 	}
 
 	wrapper.appendChild(control);
-	const badge = renderLatestBadge(item);
+	const badge = repeat ? null : renderLatestBadge(item);
 	if (badge) {
 		wrapper.appendChild(badge);
 	}
 	return wrapper;
+}
+
+export function renderProgressLanes(item: MediaItemLike, handlers: RenderHandlers, compact = false): HTMLElement {
+	if (!hasRepeatProgress(item)) {
+		return renderProgressMeta(item, handlers, compact);
+	}
+	const lanes = document.createElement("div");
+	lanes.classList.add("media-tracker__progress-lanes");
+	lanes.appendChild(renderProgressLane("Progress", renderProgressMeta(item, handlers, compact)));
+	lanes.appendChild(renderProgressLane("Repeating", renderRepeatProgressMeta(item, handlers, compact)));
+	return lanes;
+}
+
+function renderProgressLane(label: string, progress: HTMLElement): HTMLElement {
+	const lane = document.createElement("div");
+	lane.classList.add("media-tracker__progress-lane");
+	const laneLabel = document.createElement("span");
+	laneLabel.classList.add("media-tracker__progress-lane-label");
+	laneLabel.textContent = label;
+	lane.appendChild(laneLabel);
+	lane.appendChild(progress);
+	return lane;
 }
 
 export function supportsInteractiveProgress(item: MediaItemLike): boolean {

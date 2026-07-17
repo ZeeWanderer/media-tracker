@@ -27,6 +27,14 @@ export type ProgressMutableFields = {
 	year?: number;
 };
 
+export type RepeatProgressFields = {
+	repeatProgress?: string;
+	repeatProgressLabel?: string;
+	repeatProgressUnit?: string;
+	repeatSeason?: number;
+	repeatEpisode?: number;
+};
+
 export type ParsedProgressInput =
 	| {kind: "clear"}
 	| {kind: "season-episode"; value: SeasonEpisodeProgress}
@@ -40,6 +48,12 @@ export type ProgressApplyResult = {
 	next: ProgressMutableFields;
 	accepted: boolean;
 };
+
+export type RepeatProgressApplyResult = Omit<ProgressApplyResult, "next"> & {
+	next: RepeatProgressFields;
+};
+
+export type RepeatProgressComparisonSnapshot = ProgressDisplaySnapshot & RepeatProgressFields;
 
 function normalizeString(value: unknown): string | undefined {
 	if (typeof value === "string") {
@@ -261,6 +275,43 @@ export function applyProgressInputToFields(
 	return {parsed, next: current, accepted: false};
 }
 
+function repeatToProgressFields(snapshot: RepeatProgressFields): ProgressMutableFields {
+	return {
+		progress: snapshot.repeatProgress,
+		progressLabel: snapshot.repeatProgressLabel,
+		progressUnit: snapshot.repeatProgressUnit,
+		season: snapshot.repeatSeason,
+		episode: snapshot.repeatEpisode,
+	};
+}
+
+function progressToRepeatFields(snapshot: ProgressMutableFields): RepeatProgressFields {
+	return {
+		repeatProgress: snapshot.progress,
+		repeatProgressLabel: snapshot.progressLabel,
+		repeatProgressUnit: snapshot.progressUnit,
+		repeatSeason: snapshot.season,
+		repeatEpisode: snapshot.episode,
+	};
+}
+
+export function applyProgressInputToRepeatFields(
+	type: MediaType,
+	value: string,
+	current: RepeatProgressFields,
+): RepeatProgressApplyResult {
+	const applied = applyProgressInputToFields(type, value, repeatToProgressFields(current));
+	const next = progressToRepeatFields(applied.next);
+	if (applied.parsed.kind === "novel-numeric" && current.repeatProgressUnit) {
+		next.repeatProgressUnit = current.repeatProgressUnit;
+	}
+	return {
+		parsed: applied.parsed,
+		next,
+		accepted: applied.accepted,
+	};
+}
+
 export function buildProgressDisplay(
 	type: MediaType,
 	snapshot: ProgressDisplaySnapshot,
@@ -292,4 +343,39 @@ export function buildProgressDisplay(
 		return snapshot.year !== undefined ? `Year ${snapshot.year}` : undefined;
 	}
 	return undefined;
+}
+
+export function buildRepeatProgressDisplay(
+	type: MediaType,
+	snapshot: RepeatProgressFields,
+): string | undefined {
+	return buildProgressDisplay(type, repeatToProgressFields(snapshot));
+}
+
+export function hasRepeatProgress(snapshot: RepeatProgressFields): boolean {
+	return snapshot.repeatProgress !== undefined
+		|| snapshot.repeatProgressLabel !== undefined
+		|| snapshot.repeatSeason !== undefined
+		|| snapshot.repeatEpisode !== undefined;
+}
+
+export function isRepeatProgressCaughtUp(
+	type: MediaType,
+	snapshot: RepeatProgressComparisonSnapshot,
+): boolean {
+	if (SEASON_EPISODE_TYPES.has(type)) {
+		return snapshot.season !== undefined
+			&& snapshot.episode !== undefined
+			&& snapshot.repeatSeason === snapshot.season
+			&& snapshot.repeatEpisode === snapshot.episode;
+	}
+	if (NOVEL_PROGRESS_TYPES.has(type)) {
+		if (snapshot.progress !== undefined && snapshot.repeatProgress !== undefined) {
+			return snapshot.repeatProgress === snapshot.progress;
+		}
+		if (snapshot.progressLabel !== undefined && snapshot.repeatProgressLabel !== undefined) {
+			return snapshot.repeatProgressLabel === snapshot.progressLabel;
+		}
+	}
+	return false;
 }

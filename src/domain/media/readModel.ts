@@ -1,7 +1,7 @@
 import {App, TFile, TFolder} from "obsidian";
 import {MEDIA_STATUSES, MEDIA_TYPES, type MediaStatus} from "./config";
 import {decodeMediaSnapshot} from "./frontmatter";
-import {buildProgressDisplay} from "./progress";
+import {buildProgressDisplay, buildRepeatProgressDisplay} from "./progress";
 import {normalizeVaultFolderOrDefault} from "../../pathUtils";
 import type {MediaItem} from "./models";
 
@@ -71,8 +71,15 @@ function parseMediaItem(file: TFile, app: App, baseFolder: string): MediaItem | 
 		progress: buildProgressDisplay(type, snapshot),
 		progressRaw: snapshot.progress,
 		progressLabel: snapshot.progressLabel,
+		progressUnit: snapshot.progressUnit,
 		season: snapshot.season,
 		episode: snapshot.episode,
+		repeatProgress: buildRepeatProgressDisplay(type, snapshot),
+		repeatProgressRaw: snapshot.repeatProgress,
+		repeatProgressLabel: snapshot.repeatProgressLabel,
+		repeatProgressUnit: snapshot.repeatProgressUnit,
+		repeatSeason: snapshot.repeatSeason,
+		repeatEpisode: snapshot.repeatEpisode,
 		year: snapshot.year,
 		links: snapshot.links,
 		imdbId: snapshot.imdbId,

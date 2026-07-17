@@ -1,9 +1,12 @@
 import {Menu} from "obsidian";
-import {TMDB_TYPES} from "../domain/media/config";
+import {NOVEL_PROGRESS_TYPES, SEASON_EPISODE_TYPES, TMDB_TYPES} from "../domain/media/config";
+import {hasRepeatProgress} from "../domain/media/progress";
 import type {MediaItem} from "../domain/media/models";
 
 type TrackerCardMenuHandlers = {
 	onOpenNote: () => void;
+	onStartRepeat: () => void;
+	onStopRepeat: () => void;
 	onRefreshLatest: () => void;
 	onAddLink: () => void;
 	onCleanNote: () => void;
@@ -12,6 +15,11 @@ type TrackerCardMenuHandlers = {
 
 function canRefreshLatest(item: MediaItem): boolean {
 	return TMDB_TYPES.has(item.type) || item.type === "anime" || item.type === "manga";
+}
+
+function canRepeat(item: MediaItem): boolean {
+	return Boolean(item.progress)
+		&& (NOVEL_PROGRESS_TYPES.has(item.type) || SEASON_EPISODE_TYPES.has(item.type));
 }
 
 export function showTrackerCardMenu(
@@ -33,6 +41,25 @@ export function showTrackerCardMenu(
 			.onClick(() => {
 				handlers.onRefreshLatest();
 			}));
+	}
+
+	if (canRepeat(item)) {
+		menu.addSeparator();
+		if (hasRepeatProgress(item)) {
+			menu.addItem((itemMenu) => itemMenu
+				.setTitle("Stop repeating")
+				.setIcon("repeat")
+				.onClick(() => {
+					handlers.onStopRepeat();
+				}));
+		} else {
+			menu.addItem((itemMenu) => itemMenu
+				.setTitle("Start repeating")
+				.setIcon("repeat")
+				.onClick(() => {
+					handlers.onStartRepeat();
+				}));
+		}
 	}
 
 	menu.addSeparator();

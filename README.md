@@ -26,8 +26,11 @@ Track novels, series, and movies in your Obsidian vault with a dedicated dashboa
 - Use the **+** button to advance numeric progress (when recognized).
 - Right‑click a card or row for the context menu:
   - Open note
+  - Start or stop repeating an already watched/read entry
   - Links → add Patreon/Kemono/RoyalRoad/IMDB/HDRezka/custom
   - Delete note
+
+When repeating, the card keeps the main progress as the furthest point reached and shows a second, independently editable **Repeating** progress row. The row is removed automatically when it catches up with the main progress.
 
 ## Storage format
 
@@ -74,6 +77,26 @@ year: 2021
 imdb: tt1160419
 hdrezka:
 ---
+```
+
+### Repeating progress
+
+Series and anime store repeat progress separately from the furthest watched position:
+
+```markdown
+mediaTrackerVersion: 5
+season: 3
+episode: 8
+repeatSeason: 1
+repeatEpisode: 6
+```
+
+Novels and manga use the same pattern:
+
+```markdown
+mediaTrackerVersion: 5
+progress: "431"
+repeatProgress: "75"
 ```
 
 ### Custom links

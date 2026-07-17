@@ -11,8 +11,15 @@ export interface MediaItem {
 	progress?: string;
 	progressRaw?: string;
 	progressLabel?: string;
+	progressUnit?: string;
 	season?: number;
 	episode?: number;
+	repeatProgress?: string;
+	repeatProgressRaw?: string;
+	repeatProgressLabel?: string;
+	repeatProgressUnit?: string;
+	repeatSeason?: number;
+	repeatEpisode?: number;
 	year?: number;
 	links: string[];
 	imdbId?: string;

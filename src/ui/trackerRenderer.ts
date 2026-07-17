@@ -2,7 +2,7 @@ import {MEDIA_STATUSES} from "../domain/media/config";
 import {MEDIA_STATUS_LABELS} from "./mediaStatusLabels";
 import {MEDIA_TYPE_LABELS} from "./mediaTypeConfig";
 import {renderLinks} from "./trackerLinkRenderer";
-import {renderProgressMeta, supportsInteractiveProgress} from "./trackerProgressRenderer";
+import {renderProgressLanes, supportsInteractiveProgress} from "./trackerProgressRenderer";
 import type {MediaStatus} from "../domain/media/config";
 import type {MediaItemLike, RenderHandlers, SortDirection, SortKey} from "./trackerRenderTypes";
 export type {MediaItemLike, RenderHandlers, SortDirection, SortKey} from "./trackerRenderTypes";
@@ -42,7 +42,7 @@ export function renderTableRow(item: MediaItemLike, handlers: RenderHandlers): H
 	const progressCell = document.createElement("div");
 	progressCell.classList.add("media-tracker__table-cell");
 	if (supportsInteractiveProgress(item)) {
-		progressCell.appendChild(renderProgressMeta(item, handlers, true));
+		progressCell.appendChild(renderProgressLanes(item, handlers, true));
 	} else {
 		progressCell.textContent = item.progress ?? "-";
 	}
@@ -112,7 +112,7 @@ export function renderCard(item: MediaItemLike, handlers: RenderHandlers): HTMLE
 	const rowTwo = document.createElement("div");
 	rowTwo.classList.add("media-tracker__meta-row");
 	if (supportsInteractiveProgress(item)) {
-		rowTwo.appendChild(renderProgressMeta(item, handlers));
+		rowTwo.appendChild(renderProgressLanes(item, handlers));
 	} else if (item.progress) {
 		const progress = document.createElement("div");
 		progress.classList.add("media-tracker__meta-item");

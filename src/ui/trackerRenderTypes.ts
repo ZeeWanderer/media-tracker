@@ -13,6 +13,8 @@ export type RenderHandlers = {
 	onStatusChange?: (item: MediaItemLike, status: MediaStatus) => void;
 	onProgressEdit?: (target: HTMLElement, item: MediaItemLike) => void;
 	onProgressAdvance?: (target: HTMLElement, item: MediaItemLike, nextValue: string) => void;
+	onRepeatProgressEdit?: (target: HTMLElement, item: MediaItemLike) => void;
+	onRepeatProgressAdvance?: (target: HTMLElement, item: MediaItemLike, nextValue: string) => void;
 	onLinkOpen?: (url: string) => void;
 	getLinkIconUrl?: (value: string) => string | null;
 };

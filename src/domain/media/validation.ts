@@ -211,6 +211,20 @@ export function validateLatestMediaSnapshot(snapshot: LatestMediaSnapshot): Medi
 			level: "warning",
 		});
 	}
+	if (snapshot.repeatSeason !== undefined && snapshot.repeatEpisode === undefined) {
+		issues.push({
+			field: "repeatEpisode",
+			message: "Repeat season is set without repeat episode.",
+			level: "warning",
+		});
+	}
+	if (snapshot.repeatEpisode !== undefined && snapshot.repeatSeason === undefined) {
+		issues.push({
+			field: "repeatSeason",
+			message: "Repeat episode is set without repeat season.",
+			level: "warning",
+		});
+	}
 	return issues;
 }
 

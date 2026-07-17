@@ -5,7 +5,7 @@ import {
 	type MediaType,
 } from "./config";
 
-export const CURRENT_MEDIA_SCHEMA_VERSION = 4;
+export const CURRENT_MEDIA_SCHEMA_VERSION = 5;
 export const MEDIA_SCHEMA_VERSION_KEY = "mediaTrackerVersion";
 
 export const MEDIA_TYPE_VALUES: MediaType[] = [...MEDIA_TYPES];
@@ -14,7 +14,7 @@ export const MEDIA_STATUS_VALUES: MediaStatus[] = [...MEDIA_STATUSES];
 export type MediaSchemaVersion = typeof CURRENT_MEDIA_SCHEMA_VERSION;
 
 export interface MediaSnapshotV4 {
-	version: MediaSchemaVersion;
+	version: 4;
 	type?: MediaType;
 	status: MediaStatus;
 	title?: string;
@@ -49,7 +49,16 @@ export interface MediaSnapshotV4 {
 	anilistSeasonEpisodes?: Record<string, number>;
 }
 
-export type LatestMediaSnapshot = MediaSnapshotV4;
+export interface MediaSnapshotV5 extends Omit<MediaSnapshotV4, "version"> {
+	version: MediaSchemaVersion;
+	repeatProgress?: string;
+	repeatProgressLabel?: string;
+	repeatProgressUnit?: string;
+	repeatSeason?: number;
+	repeatEpisode?: number;
+}
+
+export type LatestMediaSnapshot = MediaSnapshotV5;
 
 export type MediaFrontmatterFieldKind =
 	| "string"
@@ -96,6 +105,11 @@ export const MEDIA_FRONTMATTER_SCHEMA: MediaFrontmatterSchema = {
 		progressUnit: {kind: "string"},
 		season: {kind: "number"},
 		episode: {kind: "number"},
+		repeatProgress: {kind: "string"},
+		repeatProgressLabel: {kind: "string"},
+		repeatProgressUnit: {kind: "string"},
+		repeatSeason: {kind: "number"},
+		repeatEpisode: {kind: "number"},
 		year: {kind: "number"},
 		imdbId: {kind: "string"},
 		anilistId: {kind: "number"},

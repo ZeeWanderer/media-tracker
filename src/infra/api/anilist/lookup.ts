@@ -3,6 +3,7 @@ import {
 	buildDirectChainFromMedia,
 	fetchSeasonChain,
 	fetchSeasonTailFromKnown,
+	isSeasonCandidate,
 	sanitizeKnownSeasonEpisodes,
 	sanitizeKnownSeasonIds,
 	toSeasonEpisodesRecord,
@@ -103,7 +104,7 @@ function collapseSeasonMetadata(
 			continue;
 		}
 		const media = seasonById.get(seasonId);
-		const mergeWithPrevious = isSplitCourEntry(media) && seasonCount > 0;
+		const mergeWithPrevious = seasonCount > 0 && isSplitCourEntry(media);
 		if (!mergeWithPrevious) {
 			seasonCount += 1;
 		}
@@ -115,7 +116,7 @@ function collapseSeasonMetadata(
 		const mediaEpisodeCount = typeof media?.episodes === "number" && media.episodes > 0
 			? Math.floor(media.episodes)
 			: undefined;
-		const nextEpisodeCount = rawEpisodeCount ?? mediaEpisodeCount;
+		const nextEpisodeCount = mediaEpisodeCount ?? rawEpisodeCount;
 		if (nextEpisodeCount === undefined || nextEpisodeCount <= 0) {
 			continue;
 		}
@@ -189,6 +190,21 @@ export async function lookupAniListLatest(
 		return {
 			media,
 			seasonIds: [request.anilistId],
+		};
+	}
+
+	if (!isSeasonCandidate(media)) {
+		const latestEpisode = deriveAniListLatestEpisode(media);
+		const seasonEpisodes = typeof media.episodes === "number" && media.episodes > 0
+			? toSeasonEpisodesRecord(new Map([[1, Math.floor(media.episodes)]]))
+			: undefined;
+		return {
+			media,
+			seasonIds: [media.id],
+			seasonEpisodes,
+			latestEpisode,
+			nextEpisode: media.nextAiringEpisode?.episode ?? undefined,
+			nextAiringAt: media.nextAiringEpisode?.airingAt ?? undefined,
 		};
 	}
 

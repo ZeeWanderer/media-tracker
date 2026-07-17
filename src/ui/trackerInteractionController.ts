@@ -4,7 +4,10 @@ import {
 	deleteMediaNote,
 	normalizeMediaNoteFrontmatter,
 	refreshTrackedMediaLatest,
+	startMediaNoteRepeat,
+	stopMediaNoteRepeat,
 	updateMediaNoteProgress,
+	updateMediaNoteRepeatProgress,
 	updateMediaNoteStatus,
 } from "../flows/media";
 import {applyProgressInputToFields, buildProgressDisplay} from "../domain/media/progress";
@@ -85,6 +88,23 @@ export class TrackerInteractionController {
 					},
 				});
 			},
+				onRepeatProgressEdit: (target, item) => {
+					this.openRepeatProgressEditor(target, item);
+				},
+				onRepeatProgressAdvance: (_target, item, nextValue) => {
+					void this.deps.runTask(async () => {
+						await this.applyRepeatProgressValue(item, nextValue);
+					}, `Failed to update repeat progress for "${item.title}".`, {
+						event: "repeat_progress_advance",
+						logStart: true,
+						successMessage: `Updated repeat progress for "${item.title}".`,
+						meta: {
+							...this.getItemLogMeta(item),
+							previousProgress: item.repeatProgress ?? "",
+							nextProgress: nextValue,
+						},
+					});
+				},
 			onLinkOpen: (url) => {
 				window.open(url, "_blank", "noopener");
 			},
@@ -164,6 +184,37 @@ export class TrackerInteractionController {
 		});
 	}
 
+	private openRepeatProgressEditor(target: HTMLElement, item: MediaItem) {
+		openInlineProgressEditor({
+			target,
+			value: item.repeatProgress ?? "",
+			onCommit: (nextProgress) => {
+				void this.deps.runTask(async () => {
+					await this.applyRepeatProgressValue(item, nextProgress);
+				}, `Failed to update repeat progress for "${item.title}".`, {
+					event: "repeat_progress_edit",
+					logStart: true,
+					successMessage: `Updated repeat progress for "${item.title}".`,
+					meta: {
+						...this.getItemLogMeta(item),
+						previousProgress: item.repeatProgress ?? "",
+						nextProgress,
+					},
+				});
+			},
+		});
+	}
+
+	private async applyRepeatProgressValue(item: MediaItem, value: string) {
+		const result = await updateMediaNoteRepeatProgress(this.deps.app, item.file, item.type, value);
+		if (result === "rejected") {
+			throw new Error(`Invalid repeat progress: ${value}`);
+		}
+		if (result === "caught-up") {
+			new Notice(`Repeat caught up for "${item.title}".`);
+		}
+	}
+
 	private refreshProgressControl(target: HTMLElement, filePath: string, optimistic?: MediaItem) {
 		if (this.deps.getDisplayMode() === "details" && this.deps.getSortKey() === "progress") {
 			this.deps.render();
@@ -189,7 +240,7 @@ export class TrackerInteractionController {
 		const applied = applyProgressInputToFields(item.type, value, {
 			progress: item.progressRaw,
 			progressLabel: item.progressLabel,
-			progressUnit: "ch",
+			progressUnit: item.progressUnit ?? "ch",
 			season: item.season,
 			episode: item.episode,
 			year: item.year,
@@ -210,6 +261,7 @@ export class TrackerInteractionController {
 			progress: nextProgress,
 			progressRaw: applied.next.progress,
 			progressLabel: applied.next.progressLabel,
+			progressUnit: applied.next.progressUnit,
 			season: applied.next.season,
 			episode: applied.next.episode,
 		};
@@ -219,6 +271,29 @@ export class TrackerInteractionController {
 		showTrackerCardMenu(event, item, {
 			onOpenNote: () => {
 				void this.deps.app.workspace.getLeaf("tab").openFile(item.file);
+			},
+			onStartRepeat: () => {
+				void this.deps.runTask(async () => {
+					const started = await startMediaNoteRepeat(this.deps.app, item.file, item.type);
+					if (!started) {
+						throw new Error("Item has no repeatable progress.");
+					}
+				}, `Failed to start repeating "${item.title}".`, {
+					event: "repeat_start",
+					logStart: true,
+					successMessage: `Started repeating "${item.title}".`,
+					meta: this.getItemLogMeta(item),
+				});
+			},
+			onStopRepeat: () => {
+				void this.deps.runTask(async () => {
+					await stopMediaNoteRepeat(this.deps.app, item.file);
+				}, `Failed to stop repeating "${item.title}".`, {
+					event: "repeat_stop",
+					logStart: true,
+					successMessage: `Stopped repeating "${item.title}".`,
+					meta: this.getItemLogMeta(item),
+				});
 			},
 				onRefreshLatest: () => {
 					void this.deps.runTask(async () => {
@@ -281,7 +356,7 @@ export class TrackerInteractionController {
 						return;
 					}
 					void this.deps.runTask(async () => {
-						await deleteMediaNote(this.deps.app, item.file);
+						await deleteMediaNote(this.deps.app, item.file, this.deps.getSettings().mediaFolder);
 					}, `Failed to delete "${item.title}".`, {
 					event: "delete_note",
 					logStart: true,

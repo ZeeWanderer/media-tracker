@@ -8,6 +8,10 @@ export {
 	deleteMediaNote,
 	normalizeAllMediaNoteFrontmatter,
 	normalizeMediaNoteFrontmatter,
+	startMediaNoteRepeat,
+	stopMediaNoteRepeat,
 	updateMediaNoteProgress,
+	updateMediaNoteRepeatProgress,
 	updateMediaNoteStatus,
+	type RepeatProgressUpdateResult,
 } from "./maintenanceFlow";
