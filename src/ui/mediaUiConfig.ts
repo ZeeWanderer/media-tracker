@@ -1,5 +1,13 @@
-import type {MediaType} from "../domain/media/config";
+import type {MediaStatus, MediaType} from "../domain/media/config";
 import type {NewMediaDraft} from "../domain/media/models";
+
+export const MEDIA_STATUS_LABELS: Record<MediaStatus, string> = {
+	planned: "Planned",
+	active: "Active",
+	completed: "Completed",
+	"on-hold": "On hold",
+	dropped: "Dropped",
+};
 
 export type NewMediaFieldConfig = {
 	key: keyof NewMediaDraft;

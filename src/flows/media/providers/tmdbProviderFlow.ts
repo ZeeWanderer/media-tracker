@@ -1,7 +1,7 @@
 import {App, TFile} from "obsidian";
 import {MediaTrackerSettings} from "../../../core/pluginSettingsModel";
 import {fetchTmdbLatestEpisode, findTmdbTvIdByImdb} from "../../../infra/api/tmdbApi";
-import {updateMediaSnapshot} from "../../../domain/media";
+import {updateMediaSnapshot} from "../../../infra/storage/mediaFrontmatterStore";
 import {extractImdbId, getImdbIdFromLinks} from "../../../domain/media/links";
 import type {MediaItem} from "../../../domain/media/models";
 import type {PluginLogger} from "../../../infra/logging/pluginLogger";
@@ -87,7 +87,7 @@ async function storeSeriesImdbId(app: App, file: TFile, imdbId: string) {
 export async function refreshTmdbSeriesLatest(
 	app: App,
 	settings: MediaTrackerSettings,
-	item: MediaItem,
+	item: MediaItem<TFile>,
 	minDelayMs: number,
 	logger?: RefreshLogger,
 ): Promise<TmdbRefreshResult> {

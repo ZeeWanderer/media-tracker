@@ -1,5 +1,4 @@
-import {MEDIA_STATUS_LABELS} from "./mediaStatusLabels";
-import {MEDIA_TYPE_LABELS} from "./mediaTypeConfig";
+import {MEDIA_STATUS_LABELS, MEDIA_TYPE_LABELS} from "./mediaUiConfig";
 import {STATUS_FILTERS, TYPE_FILTERS, type DisplayMode, type StatusFilter, type TypeFilter} from "./trackerFiltering";
 
 export type TrackerControlsState = {

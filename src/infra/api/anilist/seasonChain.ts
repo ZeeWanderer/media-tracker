@@ -1,10 +1,6 @@
 import {fetchAniListMedia} from "./client";
+import {isChainBridgeCandidate, isSeasonCandidate} from "./seasonModel";
 import type {AniListMedia} from "./types";
-
-const ALWAYS_SEASON_ANIME_FORMATS = new Set(["TV", "TV_SHORT"]);
-const CONDITIONAL_SEASON_ANIME_FORMATS = new Set(["ONA", "OVA", "SPECIAL"]);
-const EXCLUDED_CHAIN_BRIDGE_FORMATS = new Set(["MUSIC"]);
-const SPLIT_COUR_MARKER_REGEX = /\b(?:part|cour)\s*(?:\d+|[ivxlcdm]+)\b/i;
 
 export type SeasonChainResult = {
 	chain: AniListMedia[];
@@ -31,94 +27,6 @@ function getRelationNode(media: AniListMedia, relation: "PREQUEL" | "SEQUEL"): A
 	return null;
 }
 
-export function sanitizeKnownSeasonIds(values?: number[]): number[] {
-	const ids: number[] = [];
-	for (const value of values ?? []) {
-		if (!Number.isFinite(value)) {
-			continue;
-		}
-		const normalized = Math.floor(value);
-		if (normalized <= 0 || ids.includes(normalized)) {
-			continue;
-		}
-		ids.push(normalized);
-	}
-	return ids;
-}
-
-export function sanitizeKnownSeasonEpisodes(values?: Record<string, number>): Map<number, number> {
-	const map = new Map<number, number>();
-	if (!values) {
-		return map;
-	}
-	for (const [seasonKey, episodeCount] of Object.entries(values)) {
-		const seasonNumber = Number.parseInt(seasonKey, 10);
-		if (!Number.isFinite(seasonNumber) || seasonNumber <= 0) {
-			continue;
-		}
-		if (!Number.isFinite(episodeCount) || episodeCount <= 0) {
-			continue;
-		}
-		map.set(seasonNumber, Math.floor(episodeCount));
-	}
-	return map;
-}
-
-export function toSeasonEpisodesRecord(map: Map<number, number>): Record<string, number> | undefined {
-	if (!map.size) {
-		return undefined;
-	}
-	const entries = Array.from(map.entries())
-		.sort((a, b) => a[0] - b[0])
-		.map(([seasonNumber, episodeCount]) => [String(seasonNumber), episodeCount] as const);
-	return Object.fromEntries(entries);
-}
-
-export function isSeasonCandidate(media: AniListMedia): boolean {
-	if (media.type !== "ANIME") {
-		return false;
-	}
-	if (!media.format) {
-		return true;
-	}
-	if (ALWAYS_SEASON_ANIME_FORMATS.has(media.format)) {
-		return true;
-	}
-	if (!CONDITIONAL_SEASON_ANIME_FORMATS.has(media.format)) {
-		return false;
-	}
-	return !isNamedStandaloneEntry(media);
-}
-
-function isChainBridgeCandidate(media: AniListMedia): boolean {
-	if (media.type !== "ANIME") {
-		return false;
-	}
-	if (!media.format) {
-		return true;
-	}
-	return !EXCLUDED_CHAIN_BRIDGE_FORMATS.has(media.format);
-}
-
-function getMediaTitles(media: AniListMedia): string[] {
-	const titles = [
-		media.title?.english ?? undefined,
-		media.title?.romaji ?? undefined,
-		media.title?.native ?? undefined,
-	];
-	return titles
-		.filter((value): value is string => typeof value === "string")
-		.map((value) => value.trim())
-		.filter((value) => value.length > 0);
-}
-
-function isNamedStandaloneEntry(media: AniListMedia): boolean {
-	const titles = getMediaTitles(media);
-	if (titles.some((title) => SPLIT_COUR_MARKER_REGEX.test(title))) {
-		return false;
-	}
-	return titles.some((title) => /[:：]/.test(title));
-}
 
 async function fetchAdjacentSeason(
 	media: AniListMedia,
@@ -143,35 +51,6 @@ async function fetchAdjacentSeason(
 		current = fullRelated;
 	}
 	return null;
-}
-
-export function buildDirectChainFromMedia(media: AniListMedia): AniListMedia[] {
-	if (!isSeasonCandidate(media)) {
-		return [media];
-	}
-	const edges = media.relations?.edges ?? [];
-	let prequel: AniListMedia | null = null;
-	let sequel: AniListMedia | null = null;
-	for (const edge of edges) {
-		const related = edge.node;
-		if (!related || !isSeasonCandidate(related)) {
-			continue;
-		}
-		if (edge.relationType === "PREQUEL") {
-			prequel = related;
-		} else if (edge.relationType === "SEQUEL") {
-			sequel = related;
-		}
-	}
-	const chain: AniListMedia[] = [];
-	if (prequel) {
-		chain.push(prequel);
-	}
-	chain.push(media);
-	if (sequel) {
-		chain.push(sequel);
-	}
-	return chain;
 }
 
 export async function fetchSeasonChain(

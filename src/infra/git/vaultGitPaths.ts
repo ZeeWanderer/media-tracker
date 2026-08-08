@@ -1,19 +1,43 @@
-import {App, FileSystemAdapter} from "obsidian";
+import type {App} from "obsidian";
 import * as path from "path";
 import {getPluginCacheDirectory, getPluginLogsDirectory, getPluginRootPath} from "../storage/pluginPaths";
-import {joinVaultRelativePath, normalizeVaultRelativePath} from "../../pathUtils";
+import {joinVaultRelativePath, normalizeVaultPathForCompare, normalizeVaultRelativePath} from "../../pathUtils";
 
 export type RepoScopePath = {
 	repoRelativePath: string;
 	absolutePath: string;
 };
 
+export type VaultCommitScope = {
+	mediaRoot: string;
+	pluginRoot: string;
+	excludedPluginRoots: string[];
+	workspacePath: string;
+};
+
+function isPathWithin(pathValue: string, scopeRoot: string): boolean {
+	return pathValue === scopeRoot || pathValue.startsWith(`${scopeRoot}/`);
+}
+
+export function isVaultPathInCommitScope(pathValue: string, scope: VaultCommitScope): boolean {
+	const path = normalizeVaultPathForCompare(pathValue);
+	const mediaRoot = normalizeVaultPathForCompare(scope.mediaRoot);
+	const pluginRoot = normalizeVaultPathForCompare(scope.pluginRoot);
+	const workspacePath = normalizeVaultPathForCompare(scope.workspacePath);
+	const excludedRoots = scope.excludedPluginRoots.map((root) => normalizeVaultPathForCompare(root));
+	if (excludedRoots.some((root) => isPathWithin(path, root))) {
+		return false;
+	}
+	return path === workspacePath || isPathWithin(path, mediaRoot) || isPathWithin(path, pluginRoot);
+}
+
 export function getVaultBasePath(app: App): string | null {
-	const adapter = app.vault.adapter;
-	if (!(adapter instanceof FileSystemAdapter)) {
+	const adapter = app.vault.adapter as unknown;
+	if (!adapter || typeof adapter !== "object" || !("getBasePath" in adapter)
+		|| typeof (adapter as {getBasePath?: unknown}).getBasePath !== "function") {
 		return null;
 	}
-	return adapter.getBasePath();
+	return (adapter as {getBasePath: () => string}).getBasePath();
 }
 
 function normalizePathValue(value: string): string {

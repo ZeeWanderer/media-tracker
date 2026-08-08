@@ -10,15 +10,13 @@ export {
 	type MediaType,
 } from "./config";
 export {
-	cleanMediaFrontmatter,
 	decodeMediaSnapshot,
-	normalizeMediaFilesFrontmatter,
-	updateMediaFrontmatter,
-	updateMediaSnapshot,
+	encodeMediaSnapshot,
+	normalizeMediaFrontmatter,
+	sanitizeMediaSnapshot,
+	validateMediaSnapshot,
 	type MediaFrontmatterProcessResult,
-	type MediaFrontmatterUpdater,
 	type MediaSnapshotDecodeResult,
-	type MediaSnapshotUpdater,
 } from "./frontmatter";
 export type {LatestMediaSnapshot} from "./schema";
 export {
@@ -60,6 +58,7 @@ export {
 	extractAnilistId,
 	extractImdbId,
 	extractTmdbId,
+	findMediaIdentityConflict,
 	filterAnilistLinks,
 	filterImdbLinks,
 	formatLinkLabel,
@@ -78,12 +77,17 @@ export {
 	normalizeStoredLink,
 	setLinks,
 	toLinkUrl,
+	type MediaIdentity,
+	type MediaIdentityConflict,
 } from "./links";
 export {
 	getTitleSortKey,
-	listMediaItems,
+	mapMediaSnapshotToRecord,
+	type MediaRecordSource,
 } from "./readModel";
 export type {
+	MediaFileReference,
 	MediaItem,
+	MediaRecord,
 	NewMediaDraft,
 } from "./models";

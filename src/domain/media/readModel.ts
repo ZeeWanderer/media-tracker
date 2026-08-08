@@ -1,12 +1,13 @@
-import {App, TFile, TFolder} from "obsidian";
-import {MEDIA_STATUSES, MEDIA_TYPES, type MediaStatus} from "./config";
-import {decodeMediaSnapshot} from "./frontmatter";
+import {MEDIA_TYPES} from "./config";
 import {buildProgressDisplay, buildRepeatProgressDisplay} from "./progress";
-import {normalizeVaultFolderOrDefault} from "../../pathUtils";
-import type {MediaItem} from "./models";
+import type {MediaRecord} from "./models";
+import type {LatestMediaSnapshot} from "./schema";
 
-export type MediaReadQuery = {
-	mediaFolder: string;
+export type MediaRecordSource = {
+	basename: string;
+	parentName?: string;
+	parentPath?: string;
+	baseFolder: string;
 };
 
 function escapeRegex(value: string): string {
@@ -18,55 +19,30 @@ const TYPE_FILE_BASENAME_REGEX = new RegExp(
 	"i",
 );
 
-function normalizeString(value: unknown): string | undefined {
-	if (typeof value === "string") {
-		const trimmed = value.trim();
-		return trimmed.length ? trimmed : undefined;
-	}
-	if (typeof value === "number") {
-		return `${value}`;
-	}
-	return undefined;
+function resolveFallbackTitle(source: MediaRecordSource): string {
+	const baseFolder = source.baseFolder.replace(/\/+$/, "");
+	const isNestedMediaFile = source.parentPath !== undefined
+		&& source.parentName !== undefined
+		&& source.parentPath !== baseFolder
+		&& source.parentPath.startsWith(`${baseFolder}/`)
+		&& TYPE_FILE_BASENAME_REGEX.test(source.basename.trim());
+	return isNestedMediaFile ? source.parentName ?? source.basename : source.basename;
 }
 
-function normalizeStatus(value: unknown): MediaStatus {
-	const raw = normalizeString(value)?.toLowerCase();
-	return MEDIA_STATUSES.find((status) => status === raw) ?? "planned";
-}
-
-function isTypeFileBasename(value: string): boolean {
-	return TYPE_FILE_BASENAME_REGEX.test(value.trim());
-}
-
-function resolveFallbackTitle(file: TFile, baseFolder: string): string {
-	const parent = file.parent;
-	if (parent
-		&& parent.path.startsWith(`${baseFolder}/`)
-		&& parent.path !== baseFolder
-		&& isTypeFileBasename(file.basename)) {
-		return parent.name;
-	}
-	return file.basename;
-}
-
-function parseMediaItem(file: TFile, app: App, baseFolder: string): MediaItem | null {
-	const cache = app.metadataCache.getFileCache(file);
-	const frontmatter = (cache?.frontmatter ?? {}) as Record<string, unknown>;
-	const {snapshot} = decodeMediaSnapshot(frontmatter);
+export function mapMediaSnapshotToRecord(
+	snapshot: LatestMediaSnapshot,
+	source: MediaRecordSource,
+): MediaRecord | null {
 	const type = snapshot.type;
 	if (!type) {
 		return null;
 	}
 
-	const title = normalizeString(snapshot.title) ?? resolveFallbackTitle(file, baseFolder);
-	const status = normalizeStatus(snapshot.status);
-
 	return {
-		file,
-		title,
-		alternateTitles: snapshot.alternateTitles ?? [],
+		title: snapshot.title ?? resolveFallbackTitle(source),
+		alternateTitles: [...(snapshot.alternateTitles ?? [])],
 		type,
-		status,
+		status: snapshot.status,
 		author: snapshot.author,
 		progress: buildProgressDisplay(type, snapshot),
 		progressRaw: snapshot.progress,
@@ -81,18 +57,18 @@ function parseMediaItem(file: TFile, app: App, baseFolder: string): MediaItem | 
 		repeatSeason: snapshot.repeatSeason,
 		repeatEpisode: snapshot.repeatEpisode,
 		year: snapshot.year,
-		links: snapshot.links,
+		links: [...snapshot.links],
 		imdbId: snapshot.imdbId,
-		anilistId: snapshot.anilistId,
-		anilistIds: snapshot.anilistIds,
 		tmdbId: snapshot.tmdbId,
 		tmdbLastChecked: snapshot.tmdbLastChecked,
 		tmdbLatestSeason: snapshot.tmdbLatestSeason,
 		tmdbLatestEpisode: snapshot.tmdbLatestEpisode,
 		tmdbLatestSeasonEpisodes: snapshot.tmdbLatestSeasonEpisodes,
-		tmdbSeasonEpisodes: snapshot.tmdbSeasonEpisodes,
+		tmdbSeasonEpisodes: snapshot.tmdbSeasonEpisodes ? {...snapshot.tmdbSeasonEpisodes} : undefined,
 		tmdbLatestAirDate: snapshot.tmdbLatestAirDate,
 		tmdbLatestName: snapshot.tmdbLatestName,
+		anilistId: snapshot.anilistId,
+		anilistIds: snapshot.anilistIds ? [...snapshot.anilistIds] : undefined,
 		anilistLastChecked: snapshot.anilistLastChecked,
 		anilistLatestEpisode: snapshot.anilistLatestEpisode,
 		anilistNextEpisode: snapshot.anilistNextEpisode,
@@ -101,49 +77,10 @@ function parseMediaItem(file: TFile, app: App, baseFolder: string): MediaItem | 
 		anilistVolumes: snapshot.anilistVolumes,
 		anilistSeason: snapshot.anilistSeason,
 		anilistSeasonTotal: snapshot.anilistSeasonTotal,
-		anilistSeasonEpisodes: snapshot.anilistSeasonEpisodes,
+		anilistSeasonEpisodes: snapshot.anilistSeasonEpisodes ? {...snapshot.anilistSeasonEpisodes} : undefined,
 	};
 }
 
 export function getTitleSortKey(title: string): string {
-	const trimmed = title.trim();
-	return trimmed.replace(/^the\s+/i, "");
-}
-
-function collectMarkdownFilesInFolder(root: TFolder): TFile[] {
-	const files: TFile[] = [];
-	const pending: TFolder[] = [root];
-	while (pending.length) {
-		const folder = pending.pop();
-		if (!folder) {
-			continue;
-		}
-		for (const child of folder.children) {
-			if (child instanceof TFile) {
-				if (child.extension === "md") {
-					files.push(child);
-				}
-				continue;
-			}
-			if (child instanceof TFolder) {
-				pending.push(child);
-			}
-		}
-	}
-	return files;
-}
-
-export function listMediaItems(app: App, query: MediaReadQuery): MediaItem[] {
-	const baseFolder = normalizeVaultFolderOrDefault(query.mediaFolder, "Media");
-	const root = app.vault.getAbstractFileByPath(baseFolder);
-	if (!(root instanceof TFolder)) {
-		return [];
-	}
-	const files = collectMarkdownFilesInFolder(root);
-	const items = files
-		.map((file) => parseMediaItem(file, app, baseFolder))
-		.filter((item): item is MediaItem => item !== null);
-
-	items.sort((a, b) => getTitleSortKey(a.title).localeCompare(getTitleSortKey(b.title)));
-	return items;
+	return title.trim().replace(/^the\s+/i, "");
 }

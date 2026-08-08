@@ -38,6 +38,12 @@ export type DesktopFaviconCacheOptions = {
 	maxMemoryBytes?: number;
 };
 
+export type FaviconCacheWarmResult = {
+	requested: number;
+	memoryHits: number;
+	diskHits: number;
+};
+
 export function getFaviconCacheKey(link: string): string | null {
 	return getDomainFaviconCacheKey(link);
 }
@@ -291,6 +297,7 @@ export class DesktopFaviconCache {
 	private diskIndex: FaviconDiskIndex | null = null;
 	private diskIndexPromise: Promise<FaviconDiskIndex> | null = null;
 	private readonly inflight = new Map<string, Promise<string | null>>();
+	private disposed = false;
 
 	constructor(
 		private readonly app: App,
@@ -304,6 +311,7 @@ export class DesktopFaviconCache {
 	}
 
 	dispose() {
+		this.disposed = true;
 		this.clearMemory();
 		this.inflight.clear();
 		this.diskIndex = null;
@@ -323,6 +331,9 @@ export class DesktopFaviconCache {
 	}
 
 	async ensureFavicon(link: string): Promise<string | null> {
+		if (this.disposed) {
+			return null;
+		}
 		const key = getFaviconCacheKey(link);
 		if (!key) {
 			return null;
@@ -347,16 +358,59 @@ export class DesktopFaviconCache {
 		}
 	}
 
+	async warmFromDisk(links: Iterable<string>): Promise<FaviconCacheWarmResult> {
+		const keys = new Set<string>();
+		for (const link of links) {
+			const key = getFaviconCacheKey(link);
+			if (key) {
+				keys.add(key);
+			}
+		}
+		const result: FaviconCacheWarmResult = {
+			requested: keys.size,
+			memoryHits: 0,
+			diskHits: 0,
+		};
+		if (this.disposed || !keys.size) {
+			return result;
+		}
+
+		const index = await this.loadDiskIndex();
+		if (this.disposed) {
+			return result;
+		}
+		await Promise.all(Array.from(keys, async (key) => {
+			if (this.getMemoryCachedByKey(key)) {
+				result.memoryHits += 1;
+				return;
+			}
+			const entry = index.entries[key];
+			if (!entry) {
+				return;
+			}
+			if (await this.promoteDiskEntry(key, entry)) {
+				result.diskHits += 1;
+			}
+		}));
+		return result;
+	}
+
 	private getMemoryCachedByKey(key: string): string | null {
 		return this.memoryStore.get(key);
 	}
 
 	private storeMemoryEntry(key: string, url: string, byteLength: number) {
+		if (this.disposed) {
+			return;
+		}
 		this.memoryStore.set(key, url, byteLength);
 	}
 
 	private async loadOrFetchFavicon(origin: string, pageUrl: string): Promise<string | null> {
 		const index = await this.loadDiskIndex();
+		if (this.disposed) {
+			return null;
+		}
 		const diskEntry = index.entries[origin];
 		if (diskEntry) {
 			const promoted = await this.promoteDiskEntry(origin, diskEntry);
@@ -424,7 +478,7 @@ export class DesktopFaviconCache {
 	private async fetchAndStoreFavicon(origin: string, pageUrl: string): Promise<string | null> {
 		const fetched = await this.fetchFaviconImage(`${origin}/favicon.ico`)
 			?? await this.discoverFavicon(pageUrl);
-		if (!fetched) {
+		if (!fetched || this.disposed) {
 			return null;
 		}
 
@@ -466,6 +520,9 @@ export class DesktopFaviconCache {
 	}
 
 	private async loadDiskIndex(): Promise<FaviconDiskIndex> {
+		if (this.disposed) {
+			return createEmptyDiskIndex();
+		}
 		if (this.diskIndex) {
 			return this.diskIndex;
 		}
@@ -479,16 +536,22 @@ export class DesktopFaviconCache {
 				const exists = await this.adapter.exists(path);
 				if (!exists) {
 					const empty = createEmptyDiskIndex();
-					this.diskIndex = empty;
+					if (!this.disposed) {
+						this.diskIndex = empty;
+					}
 					return empty;
 				}
 				const raw = await this.adapter.read(path);
 				const parsed = parseDiskIndex(raw);
-				this.diskIndex = parsed;
+				if (!this.disposed) {
+					this.diskIndex = parsed;
+				}
 				return parsed;
 			} catch {
 				const empty = createEmptyDiskIndex();
-				this.diskIndex = empty;
+				if (!this.disposed) {
+					this.diskIndex = empty;
+				}
 				return empty;
 			}
 		})().finally(() => {
@@ -499,6 +562,9 @@ export class DesktopFaviconCache {
 	}
 
 	private async saveDiskIndex(index: FaviconDiskIndex): Promise<void> {
+		if (this.disposed) {
+			return;
+		}
 		this.diskIndex = index;
 		const cacheDir = getCacheDirectory(this.app, this.pluginId);
 		await ensureAdapterDirectory(this.adapter, cacheDir);

@@ -8,6 +8,18 @@ export const KNOWN_ICON_BASES = [
 	"anilist",
 ];
 
+export type MediaIdentity = {
+	imdbId?: string;
+	anilistId?: number;
+	anilistIds?: number[];
+};
+
+export type MediaIdentityConflict<TItem extends MediaIdentity> = {
+	kind: "imdb" | "anilist";
+	value: string;
+	item: TItem;
+};
+
 export function extractImdbId(value: string): string | null {
 	const match = value.match(/tt\d{7,}/i);
 	if (!match) {
@@ -75,6 +87,28 @@ export function extractTmdbId(value: string): number | null {
 	} catch {
 		return null;
 	}
+}
+
+export function findMediaIdentityConflict<TItem extends MediaIdentity>(
+	items: readonly TItem[],
+	identity: Pick<MediaIdentity, "imdbId" | "anilistId">,
+): MediaIdentityConflict<TItem> | null {
+	const imdbId = identity.imdbId?.trim().toLowerCase();
+	if (imdbId) {
+		const item = items.find((candidate) => candidate.imdbId?.trim().toLowerCase() === imdbId);
+		if (item) {
+			return {kind: "imdb", value: identity.imdbId ?? imdbId, item};
+		}
+	}
+	const anilistId = identity.anilistId;
+	if (anilistId !== undefined && Number.isFinite(anilistId)) {
+		const item = items.find((candidate) => candidate.anilistId === anilistId
+			|| candidate.anilistIds?.includes(anilistId));
+		if (item) {
+			return {kind: "anilist", value: String(anilistId), item};
+		}
+	}
+	return null;
 }
 
 export function isImdbId(value: string): boolean {

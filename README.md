@@ -5,9 +5,10 @@ Track novels, series, and movies in your Obsidian vault with a dedicated dashboa
 ## What it does
 
 - Dashboard view with Cards and Details modes (sorting + sticky header in Details).
-- Search by title or author.
+- Search by title, alternate title, author, AniList ID/link, TMDb ID/link, or IMDb ID/link.
 - One‑click actions: open note, external links, inline status and progress edits.
-- Optional link buttons: Patreon, Kemono, RoyalRoad, IMDB, HDRezka.
+- Select a card title to copy it without changing its visual treatment.
+- Optional link buttons support known services and arbitrary URLs with cached favicons.
 - Stores everything as plain Markdown notes with YAML frontmatter.
 
 ## Quick start
@@ -42,13 +43,13 @@ Each note is just Markdown with frontmatter.
 ```markdown
 ---
 type: novel
+mediaTrackerVersion: 5
 title: He Who Fights With Monsters
 author: Shirtaloon
 status: active
 progress: 442
-patreon:
-kemono:
-royalroad:
+progressUnit: ch
+links: []
 ---
 ```
 
@@ -57,12 +58,13 @@ royalroad:
 ```markdown
 ---
 type: series
+mediaTrackerVersion: 5
 title: Silo
 status: active
 season: 1
 episode: 5
-imdb: tt14688458
-hdrezka:
+imdbId: tt14688458
+links: []
 ---
 ```
 
@@ -71,11 +73,12 @@ hdrezka:
 ```markdown
 ---
 type: movie
+mediaTrackerVersion: 5
 title: Dune
 status: planned
 year: 2021
-imdb: tt1160419
-hdrezka:
+imdbId: tt1160419
+links: []
 ---
 ```
 
@@ -105,8 +108,8 @@ You can add arbitrary links via frontmatter:
 
 ```markdown
 links:
-  FictionPress: https://www.fictionpress.com/...
-  Forum: https://forums.example.com/...
+  - https://www.fictionpress.com/...
+  - https://forums.example.com/...
 ```
 
 ## Settings
@@ -120,6 +123,7 @@ links:
 - Run `npm run deploy` when you want feedback in Obsidian.
 - If you touch UI, iterate with the preview pipeline first so you can see changes before deploying.
 - If a UI change isn't visible in previews, update the preview markup/components so it is.
+- Architecture boundaries and validation rules: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 ## UI preview workflow (no Obsidian)
 

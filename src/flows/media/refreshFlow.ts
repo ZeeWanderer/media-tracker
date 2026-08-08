@@ -1,16 +1,21 @@
-import {App} from "obsidian";
+import {App, type TFile} from "obsidian";
 import {MediaTrackerSettings} from "../../core/pluginSettingsModel";
-import {ANILIST_TYPES, TMDB_TYPES} from "../../domain/media/config";
-import {getImdbIdFromLinks} from "../../domain/media/links";
-import {AniListRefreshResult, refreshAniListLatest} from "./providers/anilistProviderFlow";
-import {refreshTmdbSeriesLatest, TmdbRefreshResult} from "./providers/tmdbProviderFlow";
+import {refreshAniListLatest} from "./providers/anilistProviderFlow";
+import {refreshTmdbSeriesLatest} from "./providers/tmdbProviderFlow";
+import {
+	executeRefreshProviderPlan,
+	getRefreshProviderPlan,
+	type RefreshProviderResult,
+	type RefreshQueue,
+} from "./providerSelection";
 import type {MediaItem} from "../../domain/media/models";
 import type {UpdateLogAttempt, UpdateLogEntry, UpdateLogRun, UpdateProvider} from "../../core/updateTypes";
 import type {PluginLogger} from "../../infra/logging/pluginLogger";
 
 type RefreshLogger = Pick<PluginLogger, "debug" | "warn">;
+type VaultMediaItem = MediaItem<TFile>;
 
-type RefreshItemResult = {
+export type RefreshItemResult = {
 	provider: UpdateProvider;
 	status: UpdateLogEntry["status"];
 	message: string;
@@ -18,15 +23,16 @@ type RefreshItemResult = {
 	attempts: UpdateLogAttempt[];
 };
 
-type RefreshQueue = "anilist" | "tmdb";
+export type RefreshItemExecutor = (item: VaultMediaItem) => Promise<RefreshItemResult>;
+
 type QueuedRefreshTarget = {
-	item: MediaItem;
+	item: VaultMediaItem;
 	queue: RefreshQueue;
 };
 
 const RUN_UPDATE_INTERVAL_MS = 250;
 
-function getItemDebugMeta(item: MediaItem): Record<string, unknown> {
+function getItemDebugMeta(item: VaultMediaItem): Record<string, unknown> {
 	return {
 		title: item.title,
 		filePath: item.file.path,
@@ -42,7 +48,7 @@ function getItemDebugMeta(item: MediaItem): Record<string, unknown> {
 	};
 }
 
-function toEntry(item: MediaItem, result: RefreshItemResult): UpdateLogEntry {
+function toEntry(item: VaultMediaItem, result: RefreshItemResult): UpdateLogEntry {
 	return {
 		title: item.title,
 		filePath: item.file.path,
@@ -54,7 +60,7 @@ function toEntry(item: MediaItem, result: RefreshItemResult): UpdateLogEntry {
 	};
 }
 
-function toAttempt(result: AniListRefreshResult | TmdbRefreshResult): UpdateLogAttempt {
+function toAttempt(result: RefreshProviderResult): UpdateLogAttempt {
 	return {
 		provider: result.provider,
 		status: result.status,
@@ -62,24 +68,8 @@ function toAttempt(result: AniListRefreshResult | TmdbRefreshResult): UpdateLogA
 	};
 }
 
-function mapProviderResult(result: AniListRefreshResult | TmdbRefreshResult): RefreshItemResult {
-	return {
-		provider: result.provider,
-		status: result.status,
-		message: result.message,
-		providersChecked: [result.provider],
-		attempts: [toAttempt(result)],
-	};
-}
-
-function getRefreshQueue(item: MediaItem): RefreshQueue | null {
-	if (ANILIST_TYPES.has(item.type)) {
-		return "anilist";
-	}
-	if (TMDB_TYPES.has(item.type)) {
-		return "tmdb";
-	}
-	return null;
+function getRefreshQueue(item: VaultMediaItem): RefreshQueue | null {
+	return getRefreshProviderPlan(item).primary;
 }
 
 function toUnexpectedFailure(queue: RefreshQueue, error: unknown): RefreshItemResult {
@@ -135,66 +125,45 @@ function compareTargetsByRefreshPriority(a: QueuedRefreshTarget, b: QueuedRefres
 export async function refreshTrackedMediaLatest(
 	app: App,
 	settings: Readonly<MediaTrackerSettings>,
-	item: MediaItem,
+	item: VaultMediaItem,
 	logger?: RefreshLogger,
 ): Promise<RefreshItemResult> {
 	const tmdbMinDelayMs = settings.tmdbMinIntervalMs;
 	const anilistMinDelayMs = 0;
-	if (item.type === "manga") {
-		logger?.debug("refresh", "item_provider_selected", "Using AniList refresh for manga item.", {
-			...getItemDebugMeta(item),
-			queue: "anilist",
-		});
-		const result = mapProviderResult(await refreshAniListLatest(app, item, anilistMinDelayMs, logger));
+	const plan = getRefreshProviderPlan(item);
+	if (!plan.primary) {
+		logger?.debug("refresh", "item_provider_skipped", "No provider mapped for item type.", getItemDebugMeta(item));
 		return {
-			...result,
-			providersChecked: ["anilist"],
+			provider: "none",
+			status: "skipped",
+			message: `No refresh provider for ${item.type}.`,
+			providersChecked: [],
+			attempts: [],
 		};
 	}
-	if (item.type === "anime") {
-		logger?.debug("refresh", "item_provider_selected", "Using AniList primary refresh for anime item.", {
-			...getItemDebugMeta(item),
-			queue: "anilist",
-		});
-		const aniListResult = await refreshAniListLatest(app, item, anilistMinDelayMs, logger);
-		const hasTmdbIdentity = Boolean(item.tmdbId || item.imdbId || getImdbIdFromLinks(item.links ?? []));
-		if (aniListResult.status === "failed" && TMDB_TYPES.has(item.type) && hasTmdbIdentity) {
-			logger?.debug("refresh", "item_provider_fallback", "Falling back to TMDB after AniList failure.", {
-				...getItemDebugMeta(item),
-				anilistMessage: aniListResult.message,
-				hasTmdbIdentity,
-			});
-			const fallback = mapProviderResult(await refreshTmdbSeriesLatest(app, settings, item, tmdbMinDelayMs, logger));
-			return {
-				...fallback,
-				providersChecked: ["anilist", "tmdb"],
-				attempts: [toAttempt(aniListResult), ...fallback.attempts],
-			};
-		}
-		const result = mapProviderResult(aniListResult);
-		return {
-			...result,
-			providersChecked: ["anilist"],
-		};
+	logger?.debug("refresh", "item_provider_selected", `Using ${plan.primary} refresh for ${item.type} item.`, {
+		...getItemDebugMeta(item),
+		queue: plan.primary,
+	});
+	const execution = await executeRefreshProviderPlan(plan, {
+		anilist: () => refreshAniListLatest(app, item, anilistMinDelayMs, logger),
+		tmdb: () => refreshTmdbSeriesLatest(app, settings, item, tmdbMinDelayMs, logger),
+	});
+	if (!execution) {
+		throw new Error("Refresh provider execution unexpectedly had no primary provider.");
 	}
-	if (TMDB_TYPES.has(item.type)) {
-		logger?.debug("refresh", "item_provider_selected", "Using TMDB refresh for item.", {
+	if (execution.providersChecked.length > 1) {
+		logger?.debug("refresh", "item_provider_fallback", "Fell back to TMDB after AniList failure.", {
 			...getItemDebugMeta(item),
-			queue: "tmdb",
+			anilistMessage: execution.attempts[0]?.message ?? "",
 		});
-		const result = mapProviderResult(await refreshTmdbSeriesLatest(app, settings, item, tmdbMinDelayMs, logger));
-		return {
-			...result,
-			providersChecked: ["tmdb"],
-		};
 	}
-	logger?.debug("refresh", "item_provider_skipped", "No provider mapped for item type.", getItemDebugMeta(item));
 	return {
-		provider: "none",
-		status: "skipped",
-		message: `No refresh provider for ${item.type}.`,
-		providersChecked: [],
-		attempts: [],
+		provider: execution.result.provider,
+		status: execution.result.status,
+		message: execution.result.message,
+		providersChecked: execution.providersChecked,
+		attempts: execution.attempts.map((attempt) => toAttempt(attempt)),
 	};
 }
 
@@ -202,10 +171,9 @@ export function formatRefreshRunSummary(run: UpdateLogRun): string {
 	return `Update complete. ${run.total} checked · ${run.updated} updated · ${run.unchanged} unchanged · ${run.failed} failed · ${run.skipped} skipped.`;
 }
 
-export async function refreshTrackedMedia(
-	app: App,
-	settings: Readonly<MediaTrackerSettings>,
-	items: MediaItem[],
+export async function executeTrackedMediaRefresh(
+	items: VaultMediaItem[],
+	refreshItem: RefreshItemExecutor,
 	onProgress?: (current: number, total: number) => void,
 	onRunUpdate?: (run: UpdateLogRun) => void,
 	logger?: RefreshLogger,
@@ -213,7 +181,7 @@ export async function refreshTrackedMedia(
 	const startedAt = Date.now();
 	const targets = items
 		.map((item) => ({item, queue: getRefreshQueue(item)}))
-		.filter((target): target is {item: MediaItem; queue: RefreshQueue} => target.queue !== null);
+		.filter((target): target is {item: VaultMediaItem; queue: RefreshQueue} => target.queue !== null);
 	targets.sort(compareTargetsByRefreshPriority);
 	const total = targets.length;
 	const entries: UpdateLogEntry[] = [];
@@ -280,7 +248,7 @@ export async function refreshTrackedMedia(
 	onProgress?.(0, total);
 	emitRunUpdate(true);
 
-	const commitItemResult = (queue: RefreshQueue, item: MediaItem, result: RefreshItemResult) => {
+	const commitItemResult = (queue: RefreshQueue, item: VaultMediaItem, result: RefreshItemResult) => {
 		entries.push(toEntry(item, result));
 		logger?.debug("refresh", "item_result", "Processed refresh result for item.", {
 			...getItemDebugMeta(item),
@@ -326,10 +294,10 @@ export async function refreshTrackedMedia(
 		emitRunUpdate();
 	};
 
-	const runQueue = async (queue: RefreshQueue, queueItems: MediaItem[]) => {
+	const runQueue = async (queue: RefreshQueue, queueItems: VaultMediaItem[]) => {
 		for (const item of queueItems) {
 			try {
-				const result = await refreshTrackedMediaLatest(app, settings, item, logger);
+				const result = await refreshItem(item);
 				commitItemResult(queue, item, result);
 			} catch (error) {
 				logger?.warn("refresh", "item_unexpected_failure", "Unexpected error while refreshing item.", {
@@ -359,4 +327,21 @@ export async function refreshTrackedMedia(
 		finishedAt,
 		durationMs: Math.max(0, finishedAt - startedAt),
 	};
+}
+
+export async function refreshTrackedMedia(
+	app: App,
+	settings: Readonly<MediaTrackerSettings>,
+	items: VaultMediaItem[],
+	onProgress?: (current: number, total: number) => void,
+	onRunUpdate?: (run: UpdateLogRun) => void,
+	logger?: RefreshLogger,
+): Promise<UpdateLogRun> {
+	return executeTrackedMediaRefresh(
+		items,
+		(item) => refreshTrackedMediaLatest(app, settings, item, logger),
+		onProgress,
+		onRunUpdate,
+		logger,
+	);
 }

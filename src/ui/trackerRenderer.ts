@@ -1,6 +1,5 @@
 import {MEDIA_STATUSES} from "../domain/media/config";
-import {MEDIA_STATUS_LABELS} from "./mediaStatusLabels";
-import {MEDIA_TYPE_LABELS} from "./mediaTypeConfig";
+import {MEDIA_STATUS_LABELS, MEDIA_TYPE_LABELS} from "./mediaUiConfig";
 import {renderLinks} from "./trackerLinkRenderer";
 import {renderProgressLanes, supportsInteractiveProgress} from "./trackerProgressRenderer";
 import type {MediaStatus} from "../domain/media/config";
@@ -27,7 +26,7 @@ export function renderTableHeader(
 	return row;
 }
 
-export function renderTableRow(item: MediaItemLike, handlers: RenderHandlers): HTMLElement {
+export function renderTableRow<TItem extends MediaItemLike>(item: TItem, handlers: RenderHandlers<TItem>): HTMLElement {
 	const row = document.createElement("div");
 	row.classList.add("media-tracker__table-row");
 	if (handlers.onContextMenu) {
@@ -71,7 +70,7 @@ export function renderTableRow(item: MediaItemLike, handlers: RenderHandlers): H
 	return row;
 }
 
-export function renderCard(item: MediaItemLike, handlers: RenderHandlers): HTMLElement {
+export function renderCard<TItem extends MediaItemLike>(item: TItem, handlers: RenderHandlers<TItem>): HTMLElement {
 	const card = document.createElement("div");
 	card.classList.add("media-tracker__card");
 	if (handlers.onContextMenu) {
@@ -166,7 +165,7 @@ function createSortableHeader(
 	return cell;
 }
 
-function renderStatusSelect(item: MediaItemLike, handlers: RenderHandlers): HTMLElement {
+function renderStatusSelect<TItem extends MediaItemLike>(item: TItem, handlers: RenderHandlers<TItem>): HTMLElement {
 	const wrapper = document.createElement("div");
 	wrapper.classList.add("media-tracker__status");
 	const select = document.createElement("select");

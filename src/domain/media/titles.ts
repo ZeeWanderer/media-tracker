@@ -1,5 +1,3 @@
-import {parseStringArray, toTrimmedString} from "./fieldCodecs";
-
 export const LEGACY_ALTERNATE_TITLE_FIELDS = [
 	"alternativeTitles",
 	"altTitles",
@@ -7,6 +5,24 @@ export const LEGACY_ALTERNATE_TITLE_FIELDS = [
 	"synonyms",
 	"titles",
 ] as const;
+
+function toTrimmedString(value: unknown): string | undefined {
+	if (typeof value !== "string") {
+		return undefined;
+	}
+	const trimmed = value.trim();
+	return trimmed.length ? trimmed : undefined;
+}
+
+function parseStringArray(value: unknown): string[] | undefined {
+	if (!Array.isArray(value)) {
+		return undefined;
+	}
+	const normalized = value
+		.map((entry) => toTrimmedString(entry))
+		.filter((entry): entry is string => entry !== undefined);
+	return normalized.length ? normalized : undefined;
+}
 
 function parseTitleList(value: unknown): string[] {
 	if (Array.isArray(value)) {

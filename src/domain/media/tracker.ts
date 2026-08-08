@@ -5,10 +5,10 @@ import {
 	parseMangaProgress,
 	type MangaProgress,
 } from "./progress";
-import type {MediaItem} from "./models";
+import type {MediaRecord} from "./models";
 
 export type TrackerComputationItem = Pick<
-	MediaItem,
+	MediaRecord,
 	| "type"
 	| "progress"
 	| "progressRaw"

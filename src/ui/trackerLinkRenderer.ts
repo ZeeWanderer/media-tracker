@@ -2,7 +2,11 @@ import {extractImdbId, formatLinkLabel, getAnilistUrl, getFaviconUrl, toLinkUrl}
 import {setAttrSafe} from "./domAttrs";
 import type {MediaItemLike, RenderHandlers} from "./trackerRenderTypes";
 
-export function renderLinks(container: HTMLElement, item: MediaItemLike, handlers: RenderHandlers): number {
+export function renderLinks<TItem extends MediaItemLike>(
+	container: HTMLElement,
+	item: TItem,
+	handlers: RenderHandlers<TItem>,
+): number {
 	let count = 0;
 	const links = item.links ?? [];
 	for (const link of links) {
@@ -24,10 +28,10 @@ export function renderLinks(container: HTMLElement, item: MediaItemLike, handler
 	return count;
 }
 
-function renderLinkButton(
+function renderLinkButton<TItem extends MediaItemLike>(
 	container: HTMLElement,
 	value: string,
-	handlers: RenderHandlers,
+	handlers: RenderHandlers<TItem>,
 ): boolean {
 	const url = toLinkUrl(value);
 	if (!url) {

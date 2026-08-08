@@ -1,6 +1,10 @@
 import {App, TFile, TFolder} from "obsidian";
-import {cleanMediaFrontmatter, normalizeMediaFilesFrontmatter, updateMediaFrontmatter, updateMediaSnapshot} from "../../domain/media";
-import {collectLinks, extractAnilistId, normalizeStoredLink, setLinks} from "../../domain/media/links";
+import {extractAnilistId, normalizeStoredLink} from "../../domain/media/links";
+import {
+	cleanMediaFrontmatter,
+	normalizeMediaFilesFrontmatter,
+	updateMediaSnapshot,
+} from "../../infra/storage/mediaFrontmatterStore";
 import {
 	applyProgressInputToFields,
 	applyProgressInputToRepeatFields,
@@ -123,16 +127,18 @@ export async function addLinkToMediaNote(
 	if (!normalized) {
 		return;
 	}
-	await updateMediaFrontmatter(app, file, (frontmatter) => {
+	await updateMediaSnapshot(app, file, (snapshot) => {
 		if (anilistId) {
-			frontmatter.anilistId = anilistId;
+			snapshot.anilistId = anilistId;
+			snapshot.anilistIds = [
+				anilistId,
+				...(snapshot.anilistIds ?? []).filter((id) => id !== anilistId),
+			];
 			return;
 		}
-		const links = collectLinks(frontmatter);
-		if (!links.includes(normalized)) {
-			links.push(normalized);
+		if (!snapshot.links.includes(normalized)) {
+			snapshot.links.push(normalized);
 		}
-		setLinks(frontmatter, links);
 	});
 }
 
@@ -157,7 +163,7 @@ async function deleteEmptyMediaFolderAncestors(
 			return;
 		}
 		const parentPath = current.parent?.path;
-		await app.vault.delete(current);
+		await app.fileManager.trashFile(current);
 		currentPath = parentPath;
 	}
 }

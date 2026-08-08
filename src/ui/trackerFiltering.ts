@@ -1,10 +1,9 @@
 import {MEDIA_STATUSES, MEDIA_TYPES} from "../domain/media/config";
 import {extractAnilistId, extractImdbId, extractTmdbId} from "../domain/media";
 import {getTitleSortKey} from "../domain/media/readModel";
-import {MEDIA_STATUS_LABELS} from "./mediaStatusLabels";
-import {MEDIA_TYPE_LABELS} from "./mediaTypeConfig";
+import {MEDIA_STATUS_LABELS, MEDIA_TYPE_LABELS} from "./mediaUiConfig";
 import type {SortDirection, SortKey} from "./trackerRenderTypes";
-import type {MediaItem} from "../domain/media/models";
+import type {MediaRecord} from "../domain/media/models";
 import type {MediaStatus, MediaType} from "../domain/media/config";
 
 export type DisplayMode = "cards" | "details";
@@ -22,7 +21,7 @@ export type TrackerFilterState = {
 export const TYPE_FILTERS: TypeFilter[] = ["all", ...MEDIA_TYPES];
 export const STATUS_FILTERS: StatusFilter[] = ["all", ...MEDIA_STATUSES];
 
-export function matchesTrackerFilters(item: MediaItem, state: TrackerFilterState): boolean {
+export function matchesTrackerFilters(item: MediaRecord, state: TrackerFilterState): boolean {
 	if (state.typeFilter !== "all" && item.type !== state.typeFilter) {
 		return false;
 	}
@@ -49,7 +48,7 @@ export function normalizeTrackerSearchQuery(searchQuery: string): NormalizedTrac
 	};
 }
 
-export function matchesTrackerSearch(item: MediaItem, normalizedSearchQuery: NormalizedTrackerSearchQuery): boolean {
+export function matchesTrackerSearch(item: MediaRecord, normalizedSearchQuery: NormalizedTrackerSearchQuery): boolean {
 	const hasIdentityQuery = normalizedSearchQuery.imdbId !== undefined
 		|| normalizedSearchQuery.anilistId !== undefined
 		|| normalizedSearchQuery.tmdbId !== undefined;
@@ -82,7 +81,7 @@ export function matchesTrackerSearch(item: MediaItem, normalizedSearchQuery: Nor
 	return false;
 }
 
-export function sortTrackerItems(items: MediaItem[], state: TrackerFilterState): MediaItem[] {
+export function sortTrackerItems<TItem extends MediaRecord>(items: TItem[], state: TrackerFilterState): TItem[] {
 	const direction = state.sortDirection === "asc" ? 1 : -1;
 	return [...items].sort((a, b) => {
 		switch (state.sortKey) {

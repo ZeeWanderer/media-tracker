@@ -1,6 +1,5 @@
 import {getKnownIconAsset} from "../domain/media/links";
-import {MEDIA_STATUS_LABELS} from "../ui/mediaStatusLabels";
-import {MEDIA_TYPE_FIELDS, MEDIA_TYPE_LABELS, NEW_MEDIA_BASE_FIELDS} from "../ui/mediaTypeConfig";
+import {MEDIA_STATUS_LABELS, MEDIA_TYPE_FIELDS, MEDIA_TYPE_LABELS, NEW_MEDIA_BASE_FIELDS} from "../ui/mediaUiConfig";
 import {renderCard, renderTableHeader, renderTableRow} from "../ui/trackerRenderer";
 import type {MediaItemLike, RenderHandlers, SortDirection, SortKey} from "../ui/trackerRenderTypes";
 

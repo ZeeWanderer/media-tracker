@@ -109,7 +109,8 @@ export class PluginLogger {
 	private queue: string[] = [];
 	private recentEntries: PluginLogEntry[] = [];
 	private flushTimer: number | null = null;
-	private flushing = false;
+	private flushPromise: Promise<void> | null = null;
+	private disposed = false;
 	private enabled: boolean;
 	private level: PluginLogLevel;
 	private maxLogFiles: number;
@@ -172,7 +173,7 @@ export class PluginLogger {
 	}
 
 	log(level: PluginLogLevel, scope: string, event: string, message: string, meta?: Record<string, unknown>) {
-		if (!this.enabled || !this.shouldLog(level)) {
+		if (this.disposed || !this.enabled || !this.shouldLog(level)) {
 			return;
 		}
 		const entry: PluginLogEntry = {
@@ -190,7 +191,7 @@ export class PluginLogger {
 	}
 
 	private scheduleFlush() {
-		if (this.flushTimer !== null || this.flushing || !this.queue.length) {
+		if (this.disposed || this.flushTimer !== null || this.flushPromise || !this.queue.length) {
 			return;
 		}
 		this.flushTimer = window.setTimeout(() => {
@@ -200,11 +201,27 @@ export class PluginLogger {
 	}
 
 	async flush(): Promise<void> {
-		if (this.flushing || !this.queue.length) {
+		if (this.flushPromise) {
+			await this.flushPromise;
 			return;
 		}
-		this.flushing = true;
+		if (!this.queue.length) {
+			return;
+		}
 		const pending = [...this.queue];
+		const task = this.flushBatch(pending).finally(() => {
+			if (this.flushPromise === task) {
+				this.flushPromise = null;
+			}
+			if (this.queue.length && !this.disposed) {
+				this.scheduleFlush();
+			}
+		});
+		this.flushPromise = task;
+		await task;
+	}
+
+	private async flushBatch(pending: string[]): Promise<void> {
 		const payload = `${pending.join("\n")}\n`;
 
 		try {
@@ -216,25 +233,20 @@ export class PluginLogger {
 				await this.adapter.append(path, payload);
 			} else {
 				await this.adapter.write(path, payload);
-				}
-				this.queue.splice(0, pending.length);
-				await this.maybeCleanupOldLogFiles();
-			} catch (error) {
-				this.appendRecentEntry({
-					timestamp: Date.now(),
-					level: "error",
-					scope: "logger",
-					event: "flush_failed",
-					message: "Failed to flush plugin log queue.",
-					meta: safeMeta({
-						error: error instanceof Error ? error.message : String(error),
-					}),
-				});
-			} finally {
-				this.flushing = false;
-				if (this.queue.length) {
-					this.scheduleFlush();
 			}
+			this.queue.splice(0, pending.length);
+			await this.maybeCleanupOldLogFiles();
+		} catch (error) {
+			this.appendRecentEntry({
+				timestamp: Date.now(),
+				level: "error",
+				scope: "logger",
+				event: "flush_failed",
+				message: "Failed to flush plugin log queue.",
+				meta: safeMeta({
+					error: error instanceof Error ? error.message : String(error),
+				}),
+			});
 		}
 	}
 
@@ -339,10 +351,16 @@ export class PluginLogger {
 	}
 
 	async dispose() {
+		this.disposed = true;
 		if (this.flushTimer !== null) {
 			window.clearTimeout(this.flushTimer);
 			this.flushTimer = null;
 		}
-		await this.flush();
+		if (this.flushPromise) {
+			await this.flushPromise;
+		}
+		if (this.queue.length) {
+			await this.flush();
+		}
 	}
 }

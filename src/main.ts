@@ -7,7 +7,7 @@ import {MediaTrackerPluginLogView} from "./ui/pluginLogView";
 import {DesktopFaviconCache} from "./infra/cache/faviconCache";
 import {PluginLogger} from "./infra/logging/pluginLogger";
 import {refreshTrackedMedia} from "./flows/media";
-import {listMediaItems} from "./domain/media/readModel";
+import {listMediaItems} from "./infra/storage/mediaLibraryStore";
 import {UpdateLogRun} from "./core/updateTypes";
 import {
 	didMediaQuerySettingsChange,
@@ -20,20 +20,13 @@ import {StartupLibraryUpdateService} from "./core/startupLibraryUpdate";
 import {MediaTrackerSettings} from "./core/pluginSettingsModel";
 import {PendingUpdateRunCheckpointStore} from "./core/pendingUpdateRunCheckpointStore";
 import {ViewRefreshManager} from "./core/viewRefreshManager";
+import {LibraryRefreshCoordinator} from "./core/libraryRefreshOrchestrator";
+import {TrackerGitService} from "./ui/trackerServices";
 import {
 	MEDIA_TRACKER_PLUGIN_LOG_VIEW,
 	MEDIA_TRACKER_UPDATE_LOG_VIEW,
 	MEDIA_TRACKER_VIEW,
 } from "./ui/viewIds";
-
-type TrackerCacheView = {
-	invalidateItemsCache?: () => void;
-};
-
-type RefreshableView = {
-	render?: () => void;
-	requestRender?: () => void;
-};
 
 export default class MediaTrackerPlugin extends Plugin {
 	settings: MediaTrackerSettings;
@@ -43,9 +36,14 @@ export default class MediaTrackerPlugin extends Plugin {
 	private startupUpdateService!: StartupLibraryUpdateService;
 	private pendingRunCheckpointStore!: PendingUpdateRunCheckpointStore;
 	private viewRefreshManager!: ViewRefreshManager;
+	libraryRefreshCoordinator!: LibraryRefreshCoordinator;
+	trackerGitService!: TrackerGitService;
 	private settingsUpdateQueue: Promise<void> = Promise.resolve();
+	private pluginActive = false;
+	private runtimeStarted = false;
 
 	async onload() {
+		this.pluginActive = true;
 		await this.loadSettings();
 		this.faviconCache = new DesktopFaviconCache(this.app, this.manifest.id);
 		this.logger = new PluginLogger(this.app, this.manifest.id, {
@@ -64,35 +62,44 @@ export default class MediaTrackerPlugin extends Plugin {
 			refreshUpdateLogViews: () => this.refreshViewsByType(MEDIA_TRACKER_UPDATE_LOG_VIEW),
 			refreshPluginLogViews: () => this.refreshViewsByType(MEDIA_TRACKER_PLUGIN_LOG_VIEW),
 		});
-			this.updateRunState = new UpdateRunState({
-				settings: this.settings,
-				saveSettingsData: () => this.saveData(this.settings),
-				refreshUpdateLogViews: () => this.refreshViewsByType(MEDIA_TRACKER_UPDATE_LOG_VIEW),
-				loadPendingRunCheckpoint: () => this.pendingRunCheckpointStore.load(),
-				savePendingRunCheckpoint: (run) => this.pendingRunCheckpointStore.save(run),
-				logger: this.logger,
-			});
+		this.updateRunState = new UpdateRunState({
+			settings: this.settings,
+			saveSettingsData: () => this.saveData(this.settings),
+			refreshUpdateLogViews: () => this.refreshViewsByType(MEDIA_TRACKER_UPDATE_LOG_VIEW),
+			loadPendingRunCheckpoint: () => this.pendingRunCheckpointStore.load(),
+			savePendingRunCheckpoint: (run) => this.pendingRunCheckpointStore.save(run),
+			logger: this.logger,
+		});
+		this.libraryRefreshCoordinator = new LibraryRefreshCoordinator({
+			getSettings: () => this.settings,
+			runRefresh: (items, onProgress, onRunUpdate) => refreshTrackedMedia(
+				this.app,
+				this.settings,
+				items,
+				onProgress,
+				onRunUpdate,
+				this.logger,
+			),
+			setActiveUpdateRun: (run) => this.setActiveUpdateRun(run),
+			recordCompletedUpdateRun: (run) => this.recordCompletedUpdateRun(run),
+			openUpdateLog: () => openMediaUpdateLog(this),
+		});
+		this.trackerGitService = new TrackerGitService({
+			app: this.app,
+			pluginId: this.manifest.id,
+			getMediaFolder: () => this.settings.mediaFolder,
+			logger: this.logger,
+		});
 		this.startupUpdateService = new StartupLibraryUpdateService({
 			getSettings: () => this.settings,
 			saveSettingsData: () => this.saveData(this.settings),
 			listTrackedItems: () => listMediaItems(this.app, this.settings),
-				refreshTrackedItems: (items, onRunUpdate) => refreshTrackedMedia(
-					this.app,
-					this.settings,
-					items,
-					undefined,
-					onRunUpdate,
-					this.logger,
-				),
-				setActiveUpdateRun: (run) => this.setActiveUpdateRun(run),
-				recordCompletedUpdateRun: (run) => this.recordCompletedUpdateRun(run),
-				invalidateTrackerItemCaches: () => this.invalidateTrackerItemCaches(),
-				scheduleRefresh: () => this.viewRefreshManager.scheduleRefresh(),
-				openUpdateLog: () => openMediaUpdateLog(this),
-				logger: this.logger,
-			});
+			refreshCoordinator: this.libraryRefreshCoordinator,
+			invalidateTrackerItemCaches: () => this.invalidateTrackerItemCaches(),
+			scheduleRefresh: () => this.viewRefreshManager.scheduleRefresh(),
+			logger: this.logger,
+		});
 		this.logger.info("plugin", "loaded", "Media Tracker loaded.");
-		await this.updateRunState.restorePendingUpdateRunIfAny();
 
 		this.registerView(MEDIA_TRACKER_VIEW, (leaf) => new MediaTrackerView(leaf, this));
 		this.registerView(MEDIA_TRACKER_UPDATE_LOG_VIEW, (leaf) => new MediaTrackerUpdateLogView(leaf, this));
@@ -100,16 +107,58 @@ export default class MediaTrackerPlugin extends Plugin {
 		registerCommands(this);
 		this.addSettingTab(new MediaTrackerSettingTab(this.app, this));
 		this.addRibbonIcon("film", "Open media tracker", () => openMediaTracker(this));
+		this.app.workspace.onLayoutReady(() => this.startRuntime());
+	}
 
+	private startRuntime() {
+		if (!this.pluginActive || this.runtimeStarted) {
+			return;
+		}
+		this.runtimeStarted = true;
 		this.registerEvent(this.app.metadataCache.on("changed", (file) => this.viewRefreshManager.handleMetadataMutation(file)));
-		this.registerEvent(this.app.vault.on("create", (file) => this.viewRefreshManager.handleVaultDataMutation(file)));
-		this.registerEvent(this.app.vault.on("delete", (file) => this.viewRefreshManager.handleVaultDataMutation(file)));
-		this.registerEvent(this.app.vault.on("rename", (file, oldPath) => this.viewRefreshManager.handleVaultDataMutation(file, oldPath)));
-		void this.startupUpdateService.runIfDue();
+		this.registerEvent(this.app.vault.on("modify", (file) => this.trackerGitService.handleVaultPathMutation(file.path)));
+		this.registerEvent(this.app.vault.on("create", (file) => {
+			this.viewRefreshManager.handleVaultDataMutation(file);
+			this.trackerGitService.handleVaultPathMutation(file.path);
+		}));
+		this.registerEvent(this.app.vault.on("delete", (file) => {
+			this.viewRefreshManager.handleVaultDataMutation(file);
+			this.trackerGitService.handleVaultPathMutation(file.path);
+		}));
+		this.registerEvent(this.app.vault.on("rename", (file, oldPath) => {
+			this.viewRefreshManager.handleVaultDataMutation(file, oldPath);
+			this.trackerGitService.handleVaultPathMutation(file.path);
+			this.trackerGitService.handleVaultPathMutation(oldPath);
+		}));
+		this.invalidateTrackerItemCaches();
+		this.viewRefreshManager.scheduleRefresh();
+		void this.initializeRuntimeState();
+	}
+
+	private async initializeRuntimeState() {
+		try {
+			await this.updateRunState.restorePendingUpdateRunIfAny();
+		} catch (error) {
+			this.logger.error("plugin", "pending_run_restore_failed", "Failed to restore pending update state.", {
+				error: error instanceof Error ? error.message : String(error),
+			});
+		}
+		if (!this.pluginActive) {
+			return;
+		}
+		try {
+			await this.startupUpdateService.runIfDue();
+		} catch (error) {
+			this.logger.error("plugin", "startup_update_failed", "Startup library update failed.", {
+				error: error instanceof Error ? error.message : String(error),
+			});
+		}
 	}
 
 	onunload() {
+		this.pluginActive = false;
 		this.viewRefreshManager?.dispose();
+		this.trackerGitService?.dispose();
 		this.updateRunState?.flushPendingUpdateRunPersist();
 		this.logger?.info("plugin", "unloaded", "Media Tracker unloaded.");
 		void this.logger?.dispose();
@@ -148,10 +197,6 @@ export default class MediaTrackerPlugin extends Plugin {
 		return run;
 	}
 
-	suppressNextViewRefresh() {
-		this.viewRefreshManager.suppressNextViewRefresh();
-	}
-
 	setActiveUpdateRun(run: UpdateLogRun | null) {
 		this.updateRunState.setActiveUpdateRun(run);
 	}
@@ -167,19 +212,19 @@ export default class MediaTrackerPlugin extends Plugin {
 	private invalidateTrackerItemCaches() {
 		const leaves = this.app.workspace.getLeavesOfType(MEDIA_TRACKER_VIEW);
 		for (const leaf of leaves) {
-			const view = leaf.view as TrackerCacheView;
-			view.invalidateItemsCache?.();
+			if (leaf.view instanceof MediaTrackerView) {
+				leaf.view.invalidateItemsCache();
+			}
 		}
 	}
 
 	private refreshViewsByType(viewType: string) {
 		const leaves = this.app.workspace.getLeavesOfType(viewType);
 		for (const leaf of leaves) {
-			const view = leaf.view as RefreshableView;
-			if (view.requestRender) {
-				view.requestRender();
-			} else {
-				view.render?.();
+			if (leaf.view instanceof MediaTrackerView) {
+				leaf.view.requestRender();
+			} else if (leaf.view instanceof MediaTrackerUpdateLogView || leaf.view instanceof MediaTrackerPluginLogView) {
+				leaf.view.render();
 			}
 		}
 	}

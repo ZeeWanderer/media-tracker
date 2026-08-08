@@ -2,9 +2,15 @@ import {App, TFile, TFolder} from "obsidian";
 import {MediaTrackerSettings} from "../../core/pluginSettingsModel";
 import {ANILIST_TYPES, IMDB_TYPES} from "../../domain/media/config";
 import {sanitizeMediaFileName, sanitizeNewMediaDraft} from "../../domain/media/draft";
-import {extractAnilistId, extractImdbId, getAnilistIdFromLinks, getImdbIdFromLinks} from "../../domain/media/links";
-import {updateMediaSnapshot} from "../../domain/media/frontmatter";
-import {listMediaItems} from "../../domain/media/readModel";
+import {
+	extractAnilistId,
+	extractImdbId,
+	findMediaIdentityConflict,
+	getAnilistIdFromLinks,
+	getImdbIdFromLinks,
+} from "../../domain/media/links";
+import {updateMediaSnapshot} from "../../infra/storage/mediaFrontmatterStore";
+import {listMediaItems} from "../../infra/storage/mediaLibraryStore";
 import type {MediaType} from "../../domain/media/config";
 import type {MediaItem, NewMediaDraft} from "../../domain/media/models";
 
@@ -72,34 +78,6 @@ function resolveDraftAnilistId(draft: NewMediaDraft): number | undefined {
 	return fromLinks ?? undefined;
 }
 
-function findConflictingIdItem(
-	items: MediaItem[],
-	imdbId: string | undefined,
-	anilistId: number | undefined,
-): {kind: "imdb" | "anilist"; value: string; item: MediaItem} | null {
-	if (imdbId) {
-		const imdbConflict = items.find((item) => item.imdbId?.toLowerCase() === imdbId.toLowerCase());
-		if (imdbConflict) {
-			return {kind: "imdb", value: imdbId, item: imdbConflict};
-		}
-	}
-	if (anilistId !== undefined) {
-		const anilistConflict = items.find((item) => {
-			if (item.anilistId === anilistId) {
-				return true;
-			}
-			if (Array.isArray(item.anilistIds) && item.anilistIds.includes(anilistId)) {
-				return true;
-			}
-			return false;
-		});
-		if (anilistConflict) {
-			return {kind: "anilist", value: String(anilistId), item: anilistConflict};
-		}
-	}
-	return null;
-}
-
 export type CreateMediaNoteResult =
 	| {
 		status: "created";
@@ -118,7 +96,7 @@ export type CreateMediaNoteResult =
 		conflict: {
 			kind: "imdb" | "anilist";
 			value: string;
-			item: MediaItem;
+			item: MediaItem<TFile>;
 		};
 	};
 
@@ -195,7 +173,10 @@ export async function createMediaNoteFromDraft(
 
 	const draftImdbId = resolveDraftImdbId(normalizedDraft);
 	const draftAnilistId = resolveDraftAnilistId(normalizedDraft);
-	const idConflict = findConflictingIdItem(existingItems, draftImdbId, draftAnilistId);
+	const idConflict = findMediaIdentityConflict(existingItems, {
+		imdbId: draftImdbId,
+		anilistId: draftAnilistId,
+	});
 	if (idConflict) {
 		return {
 			status: "rejected",

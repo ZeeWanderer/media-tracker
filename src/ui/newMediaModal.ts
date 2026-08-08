@@ -1,6 +1,11 @@
 import {App, Modal, Notice, Setting} from "obsidian";
-import {MEDIA_STATUS_LABELS} from "./mediaStatusLabels";
-import {MEDIA_TYPE_FIELDS, MEDIA_TYPE_LABELS, NEW_MEDIA_BASE_FIELDS, type NewMediaFieldConfig} from "./mediaTypeConfig";
+import {
+	MEDIA_STATUS_LABELS,
+	MEDIA_TYPE_FIELDS,
+	MEDIA_TYPE_LABELS,
+	NEW_MEDIA_BASE_FIELDS,
+	type NewMediaFieldConfig,
+} from "./mediaUiConfig";
 import {ANILIST_TYPES, IMDB_TYPES, MEDIA_STATUSES, MEDIA_TYPES} from "../domain/media/config";
 import {createMediaNoteFromDraft, updateMediaDraftType} from "../flows/media";
 import {extractImdbId} from "../domain/media/links";

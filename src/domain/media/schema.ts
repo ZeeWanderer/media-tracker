@@ -78,8 +78,10 @@ export type MediaFrontmatterFieldSchema = {
 export type MediaFrontmatterSchema = {
 	version: MediaSchemaVersion;
 	versionKey: string;
-	fields: Record<string, MediaFrontmatterFieldSchema>;
+	fields: {[Key in MediaFrontmatterField]: MediaFrontmatterFieldSchema};
 };
+
+export type MediaFrontmatterField = Exclude<keyof LatestMediaSnapshot, "version">;
 
 export const MEDIA_FRONTMATTER_SCHEMA: MediaFrontmatterSchema = {
 	version: CURRENT_MEDIA_SCHEMA_VERSION,

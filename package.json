@@ -6,7 +6,8 @@
 	"type": "module",
 	"scripts": {
 		"dev": "node esbuild.config.mjs",
-		"build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
+		"build": "npm test && npm run lint && tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
+		"test": "node scripts/run-tests.mjs",
 		"deploy": "bash scripts/deploy.sh",
 		"preview:data": "node scripts/preview-data.mjs",
 		"preview:build": "node scripts/preview-build.mjs",
@@ -28,7 +29,8 @@
 		"playwright": "^1.57.0",
 		"tslib": "2.4.0",
 		"typescript": "^5.8.3",
-		"typescript-eslint": "8.35.1"
+		"typescript-eslint": "8.35.1",
+		"yaml": "2.8.2"
 	},
 	"dependencies": {
 		"obsidian": "latest"

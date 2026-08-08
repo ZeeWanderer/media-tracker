@@ -12,7 +12,6 @@ type ViewRefreshManagerDeps = {
 
 export class ViewRefreshManager {
 	private refreshTimer: number | null = null;
-	private skippedRefreshEvents = 0;
 	private pendingTrackerRefresh = false;
 	private pendingUpdateLogRefresh = false;
 	private pendingPluginLogRefresh = false;
@@ -30,17 +29,10 @@ export class ViewRefreshManager {
 	}
 
 	scheduleRefresh() {
-		if (this.shouldSkipScheduledRefresh()) {
-			return;
-		}
 		this.pendingTrackerRefresh = true;
 		this.pendingUpdateLogRefresh = true;
 		this.pendingPluginLogRefresh = true;
 		this.scheduleDeferredRefresh();
-	}
-
-	suppressNextViewRefresh() {
-		this.skippedRefreshEvents += 1;
 	}
 
 	handleMetadataMutation(file: TFile) {
@@ -59,18 +51,7 @@ export class ViewRefreshManager {
 		this.scheduleTrackerRefresh();
 	}
 
-	private shouldSkipScheduledRefresh(): boolean {
-		if (this.skippedRefreshEvents > 0) {
-			this.skippedRefreshEvents -= 1;
-			return true;
-		}
-		return false;
-	}
-
 	private scheduleTrackerRefresh() {
-		if (this.shouldSkipScheduledRefresh()) {
-			return;
-		}
 		this.pendingTrackerRefresh = true;
 		this.scheduleDeferredRefresh();
 	}

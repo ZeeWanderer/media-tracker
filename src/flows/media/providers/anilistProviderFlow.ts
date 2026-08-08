@@ -1,6 +1,7 @@
-import {App} from "obsidian";
+import {App, type TFile} from "obsidian";
 import {lookupAniListLatest} from "../../../infra/api/anilist/lookup";
-import {mergeAlternateTitles, updateMediaSnapshot} from "../../../domain/media";
+import {mergeAlternateTitles} from "../../../domain/media";
+import {updateMediaSnapshot} from "../../../infra/storage/mediaFrontmatterStore";
 import {extractAnilistId} from "../../../domain/media/links";
 import type {MediaItem} from "../../../domain/media/models";
 import type {PluginLogger} from "../../../infra/logging/pluginLogger";
@@ -44,7 +45,7 @@ function mergeNumberRecord(
 	);
 }
 
-function getAniListAlternateTitles(item: MediaItem, mediaTitles: {
+function getAniListAlternateTitles(item: MediaItem<TFile>, mediaTitles: {
 	english?: string | null;
 	romaji?: string | null;
 	native?: string | null;
@@ -61,7 +62,7 @@ function getAniListAlternateTitles(item: MediaItem, mediaTitles: {
 
 export async function refreshAniListLatest(
 	app: App,
-	item: MediaItem,
+	item: MediaItem<TFile>,
 	minDelayMs: number,
 	logger?: RefreshLogger,
 ): Promise<AniListRefreshResult> {

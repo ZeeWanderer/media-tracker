@@ -6,25 +6,33 @@ import {
 	type VaultCommitResult,
 } from "../infra/git/vaultGit";
 import {getAnilistUrl, getFaviconCacheKey, getKnownIconAsset, KNOWN_ICON_BASES} from "../domain/media/links";
-import {getPluginAssetsDirectory} from "../infra/storage/pluginPaths";
+import {normalizeMediaFolder} from "../core/pluginSettings";
+import {
+	getPluginAssetsDirectory,
+	getPluginCacheDirectory,
+	getPluginLogsDirectory,
+	getPluginRootPath,
+} from "../infra/storage/pluginPaths";
+import {joinVaultRelativePath} from "../pathUtils";
+import {isVaultPathInCommitScope} from "../infra/git/vaultGitPaths";
 import type {DesktopFaviconCache} from "../infra/cache/faviconCache";
 import type {PluginLogger} from "../infra/logging/pluginLogger";
-import type {MediaItem} from "../domain/media/models";
+import type {MediaRecord} from "../domain/media/models";
 
 type TrackerGitServiceDeps = {
 	app: App;
 	pluginId: string;
 	getMediaFolder: () => string;
 	logger?: Pick<PluginLogger, "error">;
-	onStateChange: () => void;
 };
 
 const COMMIT_CHANGES_REFRESH_INTERVAL_MS = 1_200;
+const COMMIT_SCOPE_REFRESH_DEBOUNCE_MS = 220;
 
 type TrackerIconServiceDeps = {
 	app: App;
 	pluginId: string;
-	faviconCache: Pick<DesktopFaviconCache, "getMemoryCachedFavicon" | "ensureFavicon">;
+	faviconCache: Pick<DesktopFaviconCache, "getMemoryCachedFavicon" | "ensureFavicon" | "warmFromDisk">;
 	onStateChange: () => void;
 };
 
@@ -37,6 +45,8 @@ export class TrackerGitService {
 	private lastScopedChangesCheck = 0;
 	private scopedChangesVersion = 0;
 	private creatingCommit = false;
+	private scopeRefreshTimer: number | null = null;
+	private readonly listeners = new Set<() => void>();
 
 	constructor(private readonly deps: TrackerGitServiceDeps) {}
 
@@ -56,10 +66,37 @@ export class TrackerGitService {
 		return this.hasScopedChanges === true;
 	}
 
+	subscribe(listener: () => void): () => void {
+		this.listeners.add(listener);
+		return () => this.listeners.delete(listener);
+	}
+
+	dispose() {
+		if (this.scopeRefreshTimer !== null) {
+			window.clearTimeout(this.scopeRefreshTimer);
+			this.scopeRefreshTimer = null;
+		}
+		this.listeners.clear();
+	}
+
+	handleVaultPathMutation(path: string) {
+		if (!this.isPathInCommitScope(path)) {
+			return;
+		}
+		if (this.scopeRefreshTimer !== null) {
+			window.clearTimeout(this.scopeRefreshTimer);
+		}
+		this.scopeRefreshTimer = window.setTimeout(() => {
+			this.scopeRefreshTimer = null;
+			this.invalidateScopedChangesState();
+			this.notifyListeners();
+		}, COMMIT_SCOPE_REFRESH_DEBOUNCE_MS);
+	}
+
 	markNotRepository() {
 		this.repository = false;
 		this.resetScopedChangesState();
-		this.deps.onStateChange();
+		this.notifyListeners();
 	}
 
 	ensureRepositoryState() {
@@ -78,7 +115,7 @@ export class TrackerGitService {
 			})
 			.finally(() => {
 				this.repositoryPromise = null;
-				this.deps.onStateChange();
+				this.notifyListeners();
 			});
 	}
 
@@ -143,7 +180,7 @@ export class TrackerGitService {
 				}
 				this.lastScopedChangesCheck = Date.now();
 				this.scopedChangesPromise = null;
-				this.deps.onStateChange();
+				this.notifyListeners();
 			});
 	}
 
@@ -153,7 +190,7 @@ export class TrackerGitService {
 		}
 		this.creatingCommit = true;
 		this.resetScopedChangesState();
-		this.deps.onStateChange();
+		this.notifyListeners();
 		try {
 			const result = await createVaultUpdateCommit(this.deps.app, {
 				mediaFolder: this.deps.getMediaFolder(),
@@ -180,8 +217,20 @@ export class TrackerGitService {
 			return result;
 		} finally {
 			this.creatingCommit = false;
-			this.deps.onStateChange();
+			this.notifyListeners();
 		}
+	}
+
+	private isPathInCommitScope(path: string): boolean {
+		return isVaultPathInCommitScope(path, {
+			mediaRoot: normalizeMediaFolder(this.deps.getMediaFolder()),
+			pluginRoot: getPluginRootPath(this.deps.app, this.deps.pluginId),
+			excludedPluginRoots: [
+				getPluginCacheDirectory(this.deps.app, this.deps.pluginId),
+				getPluginLogsDirectory(this.deps.app, this.deps.pluginId),
+			],
+			workspacePath: joinVaultRelativePath(this.deps.app.vault.configDir, "workspace.json"),
+		});
 	}
 
 	private getScopeKey(): string {
@@ -202,6 +251,12 @@ export class TrackerGitService {
 		this.hasScopedChanges = null;
 		this.scopedChangesPromise = null;
 		this.lastScopedChangesCheck = 0;
+	}
+
+	private notifyListeners() {
+		for (const listener of this.listeners) {
+			listener();
+		}
 	}
 }
 
@@ -227,7 +282,7 @@ export class TrackerIconService {
 		}
 		const assetsDir = getPluginAssetsDirectory(this.deps.app, this.deps.pluginId);
 		this.knownIconAssetsPromise = (async () => {
-			for (const base of KNOWN_ICON_BASES) {
+			await Promise.all(KNOWN_ICON_BASES.map(async (base) => {
 				const extensions = ["svg", "png", "ico"];
 				for (const ext of extensions) {
 					try {
@@ -241,21 +296,20 @@ export class TrackerIconService {
 						// Ignore missing assets or adapter errors.
 					}
 				}
-			}
+			}));
 		})().finally(() => {
 			this.knownIconAssetsPromise = null;
 		});
 		return this.knownIconAssetsPromise;
 	}
 
-	async ensureFavicons(items: MediaItem[]) {
+	async warmCachedFavicons(items: MediaRecord[]) {
+		return this.deps.faviconCache.warmFromDisk(this.collectLinks(items));
+	}
+
+	async ensureFavicons(items: MediaRecord[]) {
 		const pending: Promise<string | null>[] = [];
-		for (const item of items) {
-			const links = [...(item.links ?? [])];
-			if (item.anilistId) {
-				links.push(getAnilistUrl(item.anilistId, item.type === "manga" ? "manga" : "anime"));
-			}
-			for (const link of links) {
+		for (const link of this.collectLinks(items)) {
 				const base = getKnownIconAsset(link);
 				const asset = base ? this.knownIconAssets.get(base) : null;
 				if (asset) {
@@ -269,7 +323,6 @@ export class TrackerIconService {
 					continue;
 				}
 				pending.push(this.deps.faviconCache.ensureFavicon(link));
-			}
 		}
 
 		if (!pending.length) {
@@ -280,6 +333,17 @@ export class TrackerIconService {
 		if (results.some((value) => value !== null)) {
 			this.deps.onStateChange();
 		}
+	}
+
+	private collectLinks(items: MediaRecord[]): string[] {
+		const links: string[] = [];
+		for (const item of items) {
+			links.push(...(item.links ?? []));
+			if (item.anilistId) {
+				links.push(getAnilistUrl(item.anilistId, item.type === "manga" ? "manga" : "anime"));
+			}
+		}
+		return links;
 	}
 
 	private getAssetUrl(fileName: string): string {

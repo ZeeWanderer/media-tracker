@@ -1,8 +1,6 @@
-import {TFile} from "obsidian";
 import type {MediaStatus, MediaType} from "./config";
 
-export interface MediaItem {
-	file: TFile;
+export interface MediaRecord {
 	title: string;
 	alternateTitles: string[];
 	type: MediaType;
@@ -42,6 +40,14 @@ export interface MediaItem {
 	anilistSeason?: number;
 	anilistSeasonTotal?: number;
 	anilistSeasonEpisodes?: Record<string, number>;
+}
+
+export interface MediaFileReference {
+	path: string;
+}
+
+export interface MediaItem<TFile extends MediaFileReference = MediaFileReference> extends MediaRecord {
+	file: TFile;
 }
 
 export interface NewMediaDraft {

@@ -1,31 +1,22 @@
-import {PluginLogger} from "../infra/logging/pluginLogger";
-import {MediaTrackerSettings} from "./pluginSettingsModel";
-import {executeLibraryRefresh} from "./libraryRefreshOrchestrator";
+import {LibraryRefreshCoordinator} from "./libraryRefreshOrchestrator";
+import type {PluginLogger} from "../infra/logging/pluginLogger";
+import type {MediaTrackerSettings} from "./pluginSettingsModel";
 import type {MediaItem} from "../domain/media/models";
-import type {UpdateLogRun} from "./updateTypes";
 
 type StartupLibraryUpdateDeps = {
 	getSettings: () => MediaTrackerSettings;
 	saveSettingsData: () => Promise<void>;
-	listTrackedItems: () => MediaItem[];
-	refreshTrackedItems: (items: MediaItem[], onRunUpdate?: (run: UpdateLogRun) => void) => Promise<UpdateLogRun>;
-	setActiveUpdateRun: (run: UpdateLogRun | null) => void;
-	recordCompletedUpdateRun: (run: UpdateLogRun) => Promise<void>;
+	listTrackedItems: () => MediaItem<TFile>[];
+	refreshCoordinator: LibraryRefreshCoordinator;
 	invalidateTrackerItemCaches: () => void;
 	scheduleRefresh: () => void;
-	openUpdateLog: () => Promise<void>;
 	logger: PluginLogger;
 };
 
 export class StartupLibraryUpdateService {
-	private updateInProgress = false;
-
 	constructor(private readonly deps: StartupLibraryUpdateDeps) {}
 
 	async runIfDue() {
-		if (this.updateInProgress) {
-			return;
-		}
 		const settings = this.deps.getSettings();
 		const now = Date.now();
 		if (!this.isDue(settings, now)) {
@@ -37,8 +28,6 @@ export class StartupLibraryUpdateService {
 			});
 			return;
 		}
-
-		this.updateInProgress = true;
 
 		try {
 			const items = this.deps.listTrackedItems();
@@ -54,39 +43,32 @@ export class StartupLibraryUpdateService {
 				return;
 			}
 
-			await executeLibraryRefresh(
-				{
-					getSettings: () => this.deps.getSettings(),
-					runRefresh: (targets, _onProgress, onRunUpdate) => this.deps.refreshTrackedItems(targets, onRunUpdate),
-					setActiveUpdateRun: (run) => this.deps.setActiveUpdateRun(run),
-					recordCompletedUpdateRun: (run) => this.deps.recordCompletedUpdateRun(run),
-					openUpdateLog: () => this.deps.openUpdateLog(),
+			const result = await this.deps.refreshCoordinator.run({
+				items,
+				onCompleted: async (run, currentSettings) => {
+					currentSettings.startupLibraryUpdateLastRun = Number.isFinite(run.finishedAt) && run.finishedAt > 0
+						? run.finishedAt
+						: Date.now();
+					await this.deps.saveSettingsData();
+					this.deps.logger.info("refresh", "startup_completed", "Startup library update completed.", {
+						total: run.total,
+						updated: run.updated,
+						unchanged: run.unchanged,
+						failed: run.failed,
+						skipped: run.skipped,
+						durationMs: run.durationMs,
+					});
 				},
-				{
-					items,
-					onCompleted: async (run, currentSettings) => {
-						currentSettings.startupLibraryUpdateLastRun = Number.isFinite(run.finishedAt) && run.finishedAt > 0
-							? run.finishedAt
-							: Date.now();
-						await this.deps.saveSettingsData();
-						this.deps.logger.info("refresh", "startup_completed", "Startup library update completed.", {
-							total: run.total,
-							updated: run.updated,
-							unchanged: run.unchanged,
-							failed: run.failed,
-							skipped: run.skipped,
-							durationMs: run.durationMs,
-						});
-					},
-					onFailed: (error) => {
-						this.deps.logger.error("refresh", "startup_failed", "Startup library update failed.", {
-							error: error instanceof Error ? error.message : String(error),
-						});
-					},
+				onFailed: (error) => {
+					this.deps.logger.error("refresh", "startup_failed", "Startup library update failed.", {
+						error: error instanceof Error ? error.message : String(error),
+					});
 				},
-			);
+			});
+			if (result.status === "busy") {
+				this.deps.logger.debug("refresh", "startup_busy", "Startup library update skipped because another refresh is running.");
+			}
 		} finally {
-			this.updateInProgress = false;
 			this.deps.invalidateTrackerItemCaches();
 			this.deps.scheduleRefresh();
 		}
@@ -115,3 +97,4 @@ export class StartupLibraryUpdateService {
 		return (now - lastRun) >= this.getIntervalMs(settings);
 	}
 }
+import type {TFile} from "obsidian";

@@ -4,17 +4,25 @@ import {buildLatestBadges, getNextProgressValue, type TrackerBadgeDescriptor} fr
 import {setAttrSafe} from "./domAttrs";
 import type {MediaItemLike, RenderHandlers} from "./trackerRenderTypes";
 
-export function renderProgressMeta(item: MediaItemLike, handlers: RenderHandlers, compact = false): HTMLElement {
+export function renderProgressMeta<TItem extends MediaItemLike>(
+	item: TItem,
+	handlers: RenderHandlers<TItem>,
+	compact = false,
+): HTMLElement {
 	return renderProgressControl(item, handlers, compact, false);
 }
 
-export function renderRepeatProgressMeta(item: MediaItemLike, handlers: RenderHandlers, compact = false): HTMLElement {
+export function renderRepeatProgressMeta<TItem extends MediaItemLike>(
+	item: TItem,
+	handlers: RenderHandlers<TItem>,
+	compact = false,
+): HTMLElement {
 	return renderProgressControl(item, handlers, compact, true);
 }
 
-function renderProgressControl(
-	item: MediaItemLike,
-	handlers: RenderHandlers,
+function renderProgressControl<TItem extends MediaItemLike>(
+	item: TItem,
+	handlers: RenderHandlers<TItem>,
 	compact: boolean,
 	repeat: boolean,
 ): HTMLElement {
@@ -87,7 +95,11 @@ function renderProgressControl(
 	return wrapper;
 }
 
-export function renderProgressLanes(item: MediaItemLike, handlers: RenderHandlers, compact = false): HTMLElement {
+export function renderProgressLanes<TItem extends MediaItemLike>(
+	item: TItem,
+	handlers: RenderHandlers<TItem>,
+	compact = false,
+): HTMLElement {
 	if (!hasRepeatProgress(item)) {
 		return renderProgressMeta(item, handlers, compact);
 	}

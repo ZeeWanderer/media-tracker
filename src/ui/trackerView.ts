@@ -1,9 +1,9 @@
-import {App, ItemView, Notice, TAbstractFile, WorkspaceLeaf} from "obsidian";
+import {App, ItemView, Notice, WorkspaceLeaf, type TFile} from "obsidian";
 import {NewMediaModal} from "./newMediaModal";
 import {
 	normalizeAllMediaNoteFrontmatter,
 } from "../flows/media";
-import {listMediaItems} from "../domain/media/readModel";
+import {listMediaItems} from "../infra/storage/mediaLibraryStore";
 import {renderCard, renderTableHeader, renderTableRow} from "./trackerRenderer";
 import {openMediaUpdateLog} from "./updateLogView";
 import {TrackerGitService, TrackerIconService} from "./trackerServices";
@@ -26,17 +26,13 @@ import type {MediaTrackerSettings} from "../core/pluginSettingsModel";
 import type {DesktopFaviconCache} from "../infra/cache/faviconCache";
 import type {PluginLogger} from "../infra/logging/pluginLogger";
 import type {MediaItem} from "../domain/media/models";
-import type {UpdateLogRun} from "../core/updateTypes";
+import type {LibraryRefreshCoordinator} from "../core/libraryRefreshOrchestrator";
 import {renderTrackerControls} from "./trackerViewControls";
 import type {SortDirection, SortKey} from "./trackerRenderTypes";
-import {normalizeMediaFolder} from "../core/pluginSettings";
-import {getPluginCacheDirectory, getPluginLogsDirectory, getPluginRootPath} from "../infra/storage/pluginPaths";
-import {joinVaultRelativePath, normalizeVaultPathForCompare} from "../pathUtils";
 export {MEDIA_TRACKER_VIEW};
 
 const SEARCH_RENDER_DEBOUNCE_MS = 120;
 const ICON_REFRESH_DEBOUNCE_MS = 160;
-const COMMIT_SCOPE_REFRESH_DEBOUNCE_MS = 220;
 const MAX_ICON_PREFETCH_ITEMS = 200;
 
 type TrackerViewPluginDeps = {
@@ -46,9 +42,8 @@ type TrackerViewPluginDeps = {
 	logger: PluginLogger;
 	faviconCache: DesktopFaviconCache;
 	updateSettings: (mutator: (settings: MediaTrackerSettings) => void) => Promise<void>;
-	suppressNextViewRefresh: () => void;
-	setActiveUpdateRun: (run: UpdateLogRun | null) => void;
-	recordCompletedUpdateRun: (run: UpdateLogRun) => Promise<void>;
+	libraryRefreshCoordinator: LibraryRefreshCoordinator;
+	trackerGitService: TrackerGitService;
 };
 
 export class MediaTrackerView extends ItemView {
@@ -65,24 +60,20 @@ export class MediaTrackerView extends ItemView {
 	private readonly interactionController: TrackerInteractionController;
 	private refreshButton: HTMLButtonElement | null = null;
 	private refreshLabel: HTMLSpanElement | null = null;
-	private trackedItemsCache: MediaItem[] = [];
+	private trackedItemsCache: MediaItem<TFile>[] = [];
 	private trackedItemsCacheDirty = true;
-	private visibleItems: MediaItem[] = [];
+	private visibleItems: MediaItem<TFile>[] = [];
 	private searchRenderTimer: number | null = null;
 	private iconRefreshTimer: number | null = null;
-	private commitScopeRefreshTimer: number | null = null;
+	private unsubscribeGitState: (() => void) | null = null;
+	private isOpen = false;
+	private lifecycleGeneration = 0;
 
 	constructor(leaf: WorkspaceLeaf, plugin: TrackerViewPluginDeps) {
 		super(leaf);
 		this.plugin = plugin;
 		this.displayMode = plugin.settings.displayMode ?? "cards";
-		this.gitService = new TrackerGitService({
-			app: this.app,
-			pluginId: this.plugin.manifest.id,
-			getMediaFolder: () => this.plugin.settings.mediaFolder,
-			logger: this.plugin.logger,
-			onStateChange: () => this.requestRender(),
-		});
+		this.gitService = this.plugin.trackerGitService;
 		this.iconService = new TrackerIconService({
 			app: this.app,
 			pluginId: this.plugin.manifest.id,
@@ -90,25 +81,19 @@ export class MediaTrackerView extends ItemView {
 			onStateChange: () => this.requestRender(),
 		});
 		this.refreshService = new TrackerRefreshService({
-			app: this.app,
+			refreshCoordinator: this.plugin.libraryRefreshCoordinator,
 			getSettings: () => this.plugin.settings,
 			logger: this.plugin.logger,
-			setActiveUpdateRun: (run) => this.plugin.setActiveUpdateRun(run),
-			recordCompletedUpdateRun: (run) => this.plugin.recordCompletedUpdateRun(run),
-			openUpdateLog: () => openMediaUpdateLog(this.plugin),
 			onStateChange: () => this.updateRefreshButtonState(),
 		});
 		this.interactionController = new TrackerInteractionController({
 			app: this.app,
 			getSettings: () => this.plugin.settings,
-			suppressNextViewRefresh: () => this.plugin.suppressNextViewRefresh(),
+			refreshCoordinator: this.plugin.libraryRefreshCoordinator,
 			logger: this.plugin.logger,
 			runTask: (task, errorMessage, logContext) => this.runTask(task, errorMessage, logContext),
 			invalidateItemsCache: () => this.invalidateItemsCache(),
 			render: () => this.requestRender(),
-			getDisplayMode: () => this.displayMode,
-			getSortKey: () => this.sortKey,
-			getTrackedItems: () => this.getTrackedItems(),
 			getLinkIconUrl: (value) => this.iconService.getLinkIconUrl(value),
 		});
 	}
@@ -125,21 +110,51 @@ export class MediaTrackerView extends ItemView {
 		return "film";
 	}
 
-	async onOpen() {
-		this.registerEvent(this.app.vault.on("modify", (file) => this.onCommitScopeMutation(file)));
-		this.registerEvent(this.app.vault.on("create", (file) => this.onCommitScopeMutation(file)));
-		this.registerEvent(this.app.vault.on("delete", (file) => this.onCommitScopeMutation(file)));
-		this.registerEvent(this.app.vault.on("rename", (file, oldPath) => {
-			this.onCommitScopeMutation(file);
-			this.onCommitScopePath(oldPath);
-		}));
+	async onOpen(): Promise<void> {
+		this.isOpen = true;
+		const generation = ++this.lifecycleGeneration;
+		this.unsubscribeGitState ??= this.gitService.subscribe(() => this.requestRender());
+		this.refreshService.start();
+		this.render();
+		this.gitService.ensureRepositoryState();
+		this.gitService.ensureScopedChangesState();
+		void this.warmInitialIcons(generation);
+	}
+
+	private async warmInitialIcons(generation: number) {
+		const initialItems = this.getTrackedItems().slice(0, MAX_ICON_PREFETCH_ITEMS);
+		const startedAt = performance.now();
+		this.plugin.logger.debug("ui.tracker", "favicon_cache_warm_started", "Started warming cached favicons.", {
+			items: initialItems.length,
+		});
+		try {
+			const [, faviconWarmResult] = await Promise.all([
+				this.iconService.ensureKnownIconAssets(),
+				this.iconService.warmCachedFavicons(initialItems),
+			]);
+			this.plugin.logger.debug("ui.tracker", "favicon_cache_warm", "Warmed cached favicons.", {
+				...faviconWarmResult,
+				durationMs: Math.round((performance.now() - startedAt) * 10) / 10,
+			});
+		} catch (error) {
+			this.plugin.logger.warn("ui.tracker", "favicon_cache_warm_failed", "Failed to warm cached favicons.", {
+				error: error instanceof Error ? error.message : String(error),
+			});
+		}
+		if (!this.isOpen || generation !== this.lifecycleGeneration) {
+			return;
+		}
 		this.requestRender();
 	}
 
-	async onClose() {
+	async onClose(): Promise<void> {
+		this.isOpen = false;
+		this.lifecycleGeneration += 1;
+		this.refreshService.dispose();
+		this.unsubscribeGitState?.();
+		this.unsubscribeGitState = null;
 		this.cancelSearchRenderTimer();
 		this.cancelIconRefreshTimer();
-		this.cancelCommitScopeRefreshTimer();
 	}
 
 	invalidateItemsCache() {
@@ -147,7 +162,7 @@ export class MediaTrackerView extends ItemView {
 		this.gitService.invalidateScopedChangesState();
 	}
 
-	private getTrackedItems(): MediaItem[] {
+	private getTrackedItems(): MediaItem<TFile>[] {
 		if (this.trackedItemsCacheDirty) {
 			this.trackedItemsCache = listMediaItems(this.app, this.plugin.settings);
 			this.trackedItemsCacheDirty = false;
@@ -173,6 +188,9 @@ export class MediaTrackerView extends ItemView {
 	}
 
 	requestRender() {
+		if (!this.isOpen) {
+			return;
+		}
 		this.render();
 		this.gitService.ensureRepositoryState();
 		this.gitService.ensureScopedChangesState();
@@ -218,55 +236,6 @@ export class MediaTrackerView extends ItemView {
 		}, ICON_REFRESH_DEBOUNCE_MS);
 	}
 
-	private cancelCommitScopeRefreshTimer() {
-		if (this.commitScopeRefreshTimer !== null) {
-			window.clearTimeout(this.commitScopeRefreshTimer);
-			this.commitScopeRefreshTimer = null;
-		}
-	}
-
-	private scheduleCommitScopeRefresh() {
-		this.cancelCommitScopeRefreshTimer();
-		this.commitScopeRefreshTimer = window.setTimeout(() => {
-			this.commitScopeRefreshTimer = null;
-			this.gitService.invalidateScopedChangesState();
-			this.requestRender();
-		}, COMMIT_SCOPE_REFRESH_DEBOUNCE_MS);
-	}
-
-	private onCommitScopeMutation(file: TAbstractFile) {
-		this.onCommitScopePath(file.path);
-	}
-
-	private onCommitScopePath(path: string) {
-		if (!this.isPathInCommitScope(path)) {
-			return;
-		}
-		this.scheduleCommitScopeRefresh();
-	}
-
-	private isPathInCommitScope(path: string): boolean {
-		const normalizedPath = normalizeVaultPathForCompare(path);
-		const mediaRoot = normalizeVaultPathForCompare(normalizeMediaFolder(this.plugin.settings.mediaFolder));
-		const pluginRoot = normalizeVaultPathForCompare(getPluginRootPath(this.app, this.plugin.manifest.id));
-		const pluginCacheRoot = normalizeVaultPathForCompare(getPluginCacheDirectory(this.app, this.plugin.manifest.id));
-		const pluginLogsRoot = normalizeVaultPathForCompare(getPluginLogsDirectory(this.app, this.plugin.manifest.id));
-		const workspacePath = normalizeVaultPathForCompare(
-			joinVaultRelativePath(this.app.vault.configDir, "workspace.json"),
-		);
-		if (this.isPathInScope(normalizedPath, pluginCacheRoot) || this.isPathInScope(normalizedPath, pluginLogsRoot)) {
-			return false;
-		}
-		if (normalizedPath === workspacePath) {
-			return true;
-		}
-		return this.isPathInScope(normalizedPath, mediaRoot) || this.isPathInScope(normalizedPath, pluginRoot);
-	}
-
-	private isPathInScope(path: string, scopeRoot: string): boolean {
-		return path === scopeRoot || path.startsWith(`${scopeRoot}/`);
-	}
-
 	render() {
 		const {contentEl} = this;
 		const activeEl = document.activeElement;
@@ -310,16 +279,16 @@ export class MediaTrackerView extends ItemView {
 		cleanupButton.setAttr("aria-label", "Cleanup media frontmatter");
 		cleanupButton.setAttr("title", "Normalize media frontmatter fields");
 		cleanupButton.appendChild(createCleanupIcon());
-			cleanupButton.addEventListener("click", () => {
-				const confirmed = window.confirm("Normalize frontmatter for all media notes? This standardizes media fields and links.");
-				if (!confirmed) {
-					return;
-				}
-				const files = this.getTrackedItems().map((item) => item.file);
-				void this.runTask(async () => {
-					const changed = await normalizeAllMediaNoteFrontmatter(this.app, files);
-					this.plugin.logger.info("ui.tracker", "cleanup_all_counts", "Frontmatter normalization results.", {
-						total: files.length,
+		cleanupButton.addEventListener("click", () => {
+			const confirmed = window.confirm("Normalize frontmatter for all media notes? This standardizes media fields and links.");
+			if (!confirmed) {
+				return;
+			}
+			const files = this.getTrackedItems().map((item) => item.file);
+			void this.runTask(async () => {
+				const changed = await normalizeAllMediaNoteFrontmatter(this.app, files);
+				this.plugin.logger.info("ui.tracker", "cleanup_all_counts", "Frontmatter normalization results.", {
+					total: files.length,
 					changed,
 				});
 				new Notice(`Normalized ${changed} of ${files.length} media notes.`);
@@ -366,16 +335,16 @@ export class MediaTrackerView extends ItemView {
 				statusFilter: this.statusFilter,
 				displayMode: this.displayMode,
 			},
-				{
-					onSearchChange: (value) => {
-						this.searchQuery = value;
-						this.scheduleSearchRender();
-					},
-					onSearchClear: () => {
-						this.searchQuery = "";
-						this.cancelSearchRenderTimer();
-						this.requestRender();
-					},
+			{
+				onSearchChange: (value) => {
+					this.searchQuery = value;
+					this.scheduleSearchRender();
+				},
+				onSearchClear: () => {
+					this.searchQuery = "";
+					this.cancelSearchRenderTimer();
+					this.requestRender();
+				},
 				onTypeFilterChange: (value) => {
 					this.typeFilter = value;
 					this.requestRender();
@@ -402,21 +371,21 @@ export class MediaTrackerView extends ItemView {
 			clearButton?.toggleClass("is-visible", !!searchInput.value);
 		}
 
-			const items = this.getTrackedItems();
-			const filterState = this.getFilterState();
-			const normalizedSearchQuery = normalizeTrackerSearchQuery(filterState.searchQuery);
-			const filtered: MediaItem[] = [];
-			for (const item of items) {
-				if (!matchesTrackerFilters(item, filterState)) {
-					continue;
-				}
-				if (!matchesTrackerSearch(item, normalizedSearchQuery)) {
-					continue;
-				}
-				filtered.push(item);
+		const items = this.getTrackedItems();
+		const filterState = this.getFilterState();
+		const normalizedSearchQuery = normalizeTrackerSearchQuery(filterState.searchQuery);
+		const filtered: MediaItem<TFile>[] = [];
+		for (const item of items) {
+			if (!matchesTrackerFilters(item, filterState)) {
+				continue;
 			}
-			const sorted = this.displayMode === "details" ? sortTrackerItems(filtered, filterState) : filtered;
-			this.visibleItems = filtered;
+			if (!matchesTrackerSearch(item, normalizedSearchQuery)) {
+				continue;
+			}
+			filtered.push(item);
+		}
+		const sorted = this.displayMode === "details" ? sortTrackerItems(filtered, filterState) : filtered;
+		this.visibleItems = filtered;
 
 		if (filtered.length === 0) {
 			const empty = contentEl.createDiv({cls: "media-tracker__empty"});
@@ -424,24 +393,24 @@ export class MediaTrackerView extends ItemView {
 			return;
 		}
 
-				const handlers = this.interactionController.getRenderHandlers();
-			if (this.displayMode === "details") {
-				const list = contentEl.createDiv({cls: "media-tracker__table"});
-				list.appendChild(renderTableHeader(this.sortKey, this.sortDirection, (key) => this.handleSortChange(key)));
-				const fragment = document.createDocumentFragment();
-				for (const item of sorted) {
-					fragment.appendChild(renderTableRow(item, handlers));
-				}
-				list.appendChild(fragment);
-			} else {
-				const list = contentEl.createDiv({cls: "media-tracker__list"});
-				const fragment = document.createDocumentFragment();
-				for (const item of filtered) {
-					fragment.appendChild(renderCard(item, handlers));
-				}
-				list.appendChild(fragment);
+		const handlers = this.interactionController;
+		if (this.displayMode === "details") {
+			const list = contentEl.createDiv({cls: "media-tracker__table"});
+			list.appendChild(renderTableHeader(this.sortKey, this.sortDirection, (key) => this.handleSortChange(key)));
+			const fragment = document.createDocumentFragment();
+			for (const item of sorted) {
+				fragment.appendChild(renderTableRow(item, handlers));
 			}
+			list.appendChild(fragment);
+		} else {
+			const list = contentEl.createDiv({cls: "media-tracker__list"});
+			const fragment = document.createDocumentFragment();
+			for (const item of filtered) {
+				fragment.appendChild(renderCard(item, handlers));
+			}
+			list.appendChild(fragment);
 		}
+	}
 
 	private handleSortChange(key: SortKey) {
 		if (this.sortKey === key) {

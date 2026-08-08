@@ -1,7 +1,7 @@
 import {Menu} from "obsidian";
 import {NOVEL_PROGRESS_TYPES, SEASON_EPISODE_TYPES, TMDB_TYPES} from "../domain/media/config";
 import {hasRepeatProgress} from "../domain/media/progress";
-import type {MediaItem} from "../domain/media/models";
+import type {MediaRecord} from "../domain/media/models";
 
 type TrackerCardMenuHandlers = {
 	onOpenNote: () => void;
@@ -13,18 +13,18 @@ type TrackerCardMenuHandlers = {
 	onDeleteNote: () => void;
 };
 
-function canRefreshLatest(item: MediaItem): boolean {
+function canRefreshLatest(item: MediaRecord): boolean {
 	return TMDB_TYPES.has(item.type) || item.type === "anime" || item.type === "manga";
 }
 
-function canRepeat(item: MediaItem): boolean {
+function canRepeat(item: MediaRecord): boolean {
 	return Boolean(item.progress)
 		&& (NOVEL_PROGRESS_TYPES.has(item.type) || SEASON_EPISODE_TYPES.has(item.type));
 }
 
 export function showTrackerCardMenu(
 	event: MouseEvent,
-	item: MediaItem,
+	item: MediaRecord,
 	handlers: TrackerCardMenuHandlers,
 ) {
 	const menu = new Menu();

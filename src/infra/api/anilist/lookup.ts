@@ -1,16 +1,18 @@
 import {fetchAniListMedia, toDelayMs} from "./client";
 import {
-	buildDirectChainFromMedia,
 	fetchSeasonChain,
 	fetchSeasonTailFromKnown,
+} from "./seasonChain";
+import {
+	buildDirectChainFromMedia,
+	collapseSeasonMetadata,
 	isSeasonCandidate,
 	sanitizeKnownSeasonEpisodes,
 	sanitizeKnownSeasonIds,
 	toSeasonEpisodesRecord,
-} from "./seasonChain";
+} from "./seasonModel";
 import type {AniListLatestLookup, AniListLatestLookupRequest, AniListMedia} from "./types";
 
-const SPLIT_COUR_MARKER_REGEX = /\b(?:part|cour)\s*(?:\d+|[ivxlcdm]+)\b/i;
 const MAX_METADATA_HYDRATION_IDS = 32;
 const MAX_ANILIST_LOOKUP_CACHE_ENTRIES = 256;
 const ANILIST_LOOKUP_MEDIA_CACHE = new Map<number, AniListMedia>();
@@ -32,7 +34,11 @@ function putCachedAniListMedia(id: number, media: AniListMedia) {
 	}
 	ANILIST_LOOKUP_MEDIA_CACHE.set(id, media);
 	while (ANILIST_LOOKUP_MEDIA_CACHE.size > MAX_ANILIST_LOOKUP_CACHE_ENTRIES) {
-		const oldest = ANILIST_LOOKUP_MEDIA_CACHE.keys().next().value;
+		let oldest: number | undefined;
+		for (const key of ANILIST_LOOKUP_MEDIA_CACHE.keys()) {
+			oldest = key;
+			break;
+		}
 		if (oldest === undefined) {
 			break;
 		}
@@ -61,74 +67,6 @@ export function deriveAniListLatestEpisode(media: AniListMedia): number | undefi
 		return media.episodes;
 	}
 	return undefined;
-}
-
-function getMediaTitles(media: AniListMedia): string[] {
-	const titles = [
-		media.title?.english ?? undefined,
-		media.title?.romaji ?? undefined,
-		media.title?.native ?? undefined,
-	];
-	return titles
-		.filter((value): value is string => typeof value === "string")
-		.map((value) => value.trim())
-		.filter((value) => value.length > 0);
-}
-
-function isSplitCourEntry(media: AniListMedia | undefined): boolean {
-	if (!media) {
-		return false;
-	}
-	const titles = getMediaTitles(media);
-	return titles.some((title) => SPLIT_COUR_MARKER_REGEX.test(title));
-}
-
-type CollapsedSeasonMetadata = {
-	seasonCount: number;
-	seasonNumberById: Map<number, number>;
-	seasonEpisodes: Map<number, number>;
-};
-
-function collapseSeasonMetadata(
-	seasonIds: number[],
-	seasonById: Map<number, AniListMedia>,
-	rawSeasonEpisodes: Map<number, number>,
-): CollapsedSeasonMetadata {
-	const seasonNumberById = new Map<number, number>();
-	const seasonEpisodes = new Map<number, number>();
-	let seasonCount = 0;
-
-	for (let rawIndex = 0; rawIndex < seasonIds.length; rawIndex += 1) {
-		const seasonId = seasonIds[rawIndex];
-		if (!seasonId) {
-			continue;
-		}
-		const media = seasonById.get(seasonId);
-		const mergeWithPrevious = seasonCount > 0 && isSplitCourEntry(media);
-		if (!mergeWithPrevious) {
-			seasonCount += 1;
-		}
-		const displaySeason = Math.max(1, seasonCount);
-		seasonNumberById.set(seasonId, displaySeason);
-
-		const rawSeasonNumber = rawIndex + 1;
-		const rawEpisodeCount = rawSeasonEpisodes.get(rawSeasonNumber);
-		const mediaEpisodeCount = typeof media?.episodes === "number" && media.episodes > 0
-			? Math.floor(media.episodes)
-			: undefined;
-		const nextEpisodeCount = mediaEpisodeCount ?? rawEpisodeCount;
-		if (nextEpisodeCount === undefined || nextEpisodeCount <= 0) {
-			continue;
-		}
-		const current = seasonEpisodes.get(displaySeason) ?? 0;
-		seasonEpisodes.set(displaySeason, current + nextEpisodeCount);
-	}
-
-	return {
-		seasonCount,
-		seasonNumberById,
-		seasonEpisodes,
-	};
 }
 
 async function hydrateMissingSeasonMetadata(
